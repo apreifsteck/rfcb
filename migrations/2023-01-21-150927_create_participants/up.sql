@@ -1,0 +1,4 @@
+CREATE TABLE participants (
+  id SERIAL PRIMARY KEY,
+  username CHARACTER VARYING NOT NULL
+)
