@@ -1,0 +1,7 @@
+/Users/austin.reifsteck/Documents/repos/rfcb/migration/target/debug/deps/libtracing_attributes-7f98fd0c1035da13.dylib: /Users/austin.reifsteck/.asdf/installs/rust/1.66.0/registry/src/github.com-1ecc6299db9ec823/tracing-attributes-0.1.23/src/lib.rs /Users/austin.reifsteck/.asdf/installs/rust/1.66.0/registry/src/github.com-1ecc6299db9ec823/tracing-attributes-0.1.23/src/attr.rs /Users/austin.reifsteck/.asdf/installs/rust/1.66.0/registry/src/github.com-1ecc6299db9ec823/tracing-attributes-0.1.23/src/expand.rs
+
+/Users/austin.reifsteck/Documents/repos/rfcb/migration/target/debug/deps/tracing_attributes-7f98fd0c1035da13.d: /Users/austin.reifsteck/.asdf/installs/rust/1.66.0/registry/src/github.com-1ecc6299db9ec823/tracing-attributes-0.1.23/src/lib.rs /Users/austin.reifsteck/.asdf/installs/rust/1.66.0/registry/src/github.com-1ecc6299db9ec823/tracing-attributes-0.1.23/src/attr.rs /Users/austin.reifsteck/.asdf/installs/rust/1.66.0/registry/src/github.com-1ecc6299db9ec823/tracing-attributes-0.1.23/src/expand.rs
+
+/Users/austin.reifsteck/.asdf/installs/rust/1.66.0/registry/src/github.com-1ecc6299db9ec823/tracing-attributes-0.1.23/src/lib.rs:
+/Users/austin.reifsteck/.asdf/installs/rust/1.66.0/registry/src/github.com-1ecc6299db9ec823/tracing-attributes-0.1.23/src/attr.rs:
+/Users/austin.reifsteck/.asdf/installs/rust/1.66.0/registry/src/github.com-1ecc6299db9ec823/tracing-attributes-0.1.23/src/expand.rs:
