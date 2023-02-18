@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 sqlx = { version = "0.6", features = [ "runtime-actix-native-tls", "postgres", "macros", "migrate", "chrono" ] }
+sea-query = {version = "0"}
 dotenvy = "0.15"
 actix-web = "4"
 
