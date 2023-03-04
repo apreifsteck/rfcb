@@ -42,8 +42,8 @@ impl TableRef for RFC {
     }
 }
 
-#[derive(Iden, Clone, PartialEq, Eq, Hash)]
-enum RequestForComments {
+#[derive(Debug, Iden, Clone, PartialEq, Eq, Hash)]
+pub enum RequestForComments {
     Status(Status),
     Proposal(String),
 }
