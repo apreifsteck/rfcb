@@ -43,12 +43,12 @@ impl TableRef for RFC {
 }
 
 #[derive(Debug, Iden, Clone, PartialEq, Eq, Hash)]
-pub enum RequestForComments {
+pub enum RFCAttrs {
     Status(Status),
     Proposal(String),
 }
 
-impl Valuable for RequestForComments {
+impl Valuable for RFCAttrs {
     fn value(&self) -> SimpleExpr {
         match self {
             Self::Status(status) => status.as_ref().into(),
