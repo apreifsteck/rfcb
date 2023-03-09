@@ -1,7 +1,8 @@
 use sea_query::{Alias, Iden, PostgresQueryBuilder, Query, SimpleExpr};
 use sqlx::postgres::{PgPool, PgRow};
 use sqlx::{Error, Executor};
-use std::mem;
+use std::fmt::{Debug, Display};
+use std::mem::{self, discriminant};
 use std::vec::Vec;
 
 pub trait TableRef {
@@ -9,6 +10,19 @@ pub trait TableRef {
 }
 pub trait Valuable {
     fn value(&self) -> SimpleExpr;
+}
+
+macro_rules! panic_if_not_match {
+    (
+        <$enum:ty>::$variant:ident($inner_val:ident), $value:ident
+    ) => {{
+        type Enum = $enum;
+        if let Enum::$variant($inner_val) = $value {
+            $inner_val
+        } else {
+            panic!("Pattern does not match")
+        }
+    }};
 }
 
 // TODO see if you can find a way to keep the closures off the heap
@@ -132,36 +146,19 @@ mod tests {
         use std::panic::panic_any;
 
         use super::super::*;
-        use crate::entities::rfc::{RFCAttrs, Status, RFC};
-        // #[test]
-        fn fails_if_required_attrs_not_present() {
-            // Desired behaviour
-            // Be able to add validations to the changeset.
-            // The validations should operate on particular changes
-            // Maybe since we're assuming you can only have one change per attribute
-            // we could build a map of changes, where the discriminant is the key
-            // Validations could be lists to apply to changes.
-            // Question: How to pass in an enum variant without instantiating data?
-            // Maybe stringify an enum variant? But then you still have to instantiate it
-            // OR
-            // bundle the validations in along with the change addendum
-            //
-        }
+        use crate::{
+            changeset,
+            entities::rfc::{RFCAttrs, Status, RFC},
+        };
         #[test]
         fn fails_if_validations_not_passing() -> Result<(), &'static str> {
             let mut cs = super::setup();
-            //TODO could refactor maybe to use a function that matches or panics?
             let too_long = |proposal: &RFCAttrs| {
-                if let RFCAttrs::Proposal(prop) = proposal {
-                    //TODO refactor into function that takes a boolean and error string and returns OK
-                    // or error
-                    if prop.len() > 1 {
-                        Err("Proposal too long")
-                    } else {
-                        Ok(())
-                    }
+                let prop = panic_if_not_match!(<RFCAttrs>::Proposal(prop), proposal);
+                if prop.len() > 1 {
+                    Err("Proposal too long")
                 } else {
-                    panic!("Not for good proposal")
+                    Ok(())
                 }
             };
             cs.add_change(
@@ -175,10 +172,6 @@ mod tests {
                 panic!()
             }
         }
-        // #[test]
-        // fn passes_if_required_attrs_present() {
-        //     assert!(false)
-        // }
     }
     //
     // mod insert_tests {
