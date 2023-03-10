@@ -61,10 +61,13 @@ impl Valuable for RFCAttrs {
     }
 }
 
-fn new(proposal: &str, topic: &str) {
-    let cs: Changeset<RFCAttrs, RFC> = Changeset::new(None);
-    cs.add_change(change, validations)
-}
+// fn create(proposal: &str, topic: &str) -> Result<RFC> {
+//     let cs: Changeset<RFCAttrs, RFC> = Changeset::new(None);
+//     //TODO add validations
+//     cs.add_change(RFCAttrs::Topic(topic.to_string()), None);
+//     cs.add_change(RFCAttrs::Proposal(proposal.to_string()), None);
+//     cs.validate()?.insert(&pool).await.unwrap()
+// }
 
 // #[cfg(test)]
 // mod tests {

@@ -42,6 +42,11 @@ pub struct Changeset<Attr, Data> {
     valid: bool,
 }
 
+#[derive(Debug)]
+pub enum ChangestError {
+    DBError(sqlx::Error),
+    ValidationError(Vec<&'static str>),
+}
 impl<'a, Attr, Data> Changeset<Attr, Data>
 where
     Attr: Eq + Iden + Valuable + Clone + 'static + std::fmt::Debug,
@@ -69,7 +74,7 @@ where
         }
         self
     }
-    pub fn validate(&mut self) -> Result<&mut Self, Vec<&'static str>> {
+    pub fn validate(&mut self) -> Result<&mut Self, ChangestError> {
         let mut errors_acc = vec![];
 
         let errors = self.changes.iter().fold(
@@ -84,19 +89,20 @@ where
             },
         );
         if errors.len() > 0 {
-            Err(errors_acc)
+            Err(ChangestError::ValidationError(errors_acc))
         } else {
             self.valid = true;
             Ok(self)
         }
     }
-    pub async fn insert(self, pool: &PgPool) -> Result<Data, Error> {
+    pub async fn insert(self, pool: &PgPool) -> Result<Data, ChangestError> {
         if self.valid == false {
             panic!("Did not call validate before attempting to insert")
         }
-        pool.fetch_one(self.build_query().as_str())
-            .await
-            .map(|row| Data::from_row(&row).unwrap())
+        match pool.fetch_one(self.build_query().as_str()).await {
+            Ok(row) => Data::from_row(&row).map_err(|error| ChangestError::DBError(error)),
+            Err(err) => Err(ChangestError::DBError(err)),
+        }
     }
     fn build_query(&self) -> String {
         let changes: Vec<Attr> = self
@@ -194,8 +200,8 @@ mod tests {
                 BogusAttrs::Field("Whatever".to_string()),
                 Some(vec![Box::new(too_long)]),
             );
-            if let Err(messages) = cs.validate() {
-                assert_eq!(messages, vec!["Proposal too long"]);
+            if let Err(ChangestError::ValidationError(messages)) = cs.validate() {
+                assert_eq!(messages, vec!["field too long"]);
             } else {
                 panic!()
             }
