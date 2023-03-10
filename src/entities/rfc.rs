@@ -1,7 +1,8 @@
-use crate::changeset::{TableRef, Valuable};
+use crate::changeset::{Changeset, TableRef, Valuable};
 use sea_query::expr::SimpleExpr;
 use sea_query::types::Alias;
 use sea_query::Iden;
+use sqlx::postgres::{PgPool, PgRow};
 use sqlx::types::chrono::{DateTime, Utc};
 use std::hash::Hash;
 use std::str::FromStr;
@@ -15,7 +16,7 @@ pub struct RFC {
     pub status: Status,
     pub proposal: String,
     pub topic: String,
-    pub supercedes: i32,
+    pub supersedes: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -27,6 +28,7 @@ pub enum Status {
     Approved,
     Denied,
     Discarded,
+    Obsolete,
 }
 
 impl TryFrom<String> for Status {
@@ -43,9 +45,10 @@ impl TableRef for RFC {
 }
 
 #[derive(Debug, Iden, Clone, PartialEq, Eq, Hash)]
-pub enum RFCAttrs {
+enum RFCAttrs {
     Status(Status),
     Proposal(String),
+    Topic(String),
 }
 
 impl Valuable for RFCAttrs {
@@ -53,6 +56,38 @@ impl Valuable for RFCAttrs {
         match self {
             Self::Status(status) => status.as_ref().into(),
             Self::Proposal(p) => p.into(),
+            Self::Topic(t) => t.into(),
         }
     }
 }
+
+fn new(proposal: &str, topic: &str) {
+    let cs: Changeset<RFCAttrs, RFC> = Changeset::new(None);
+    cs.add_change(change, validations)
+}
+
+// #[cfg(test)]
+// mod tests {
+//     mod more_test {
+//         #[sqlx::test]
+//         fn returns_struct_when_valid(pool: PgPool) {
+//             let mut cs = setup();
+//             cs.validate().unwrap();
+//             if let Ok(RFC {
+//                 id,
+//                 status,
+//                 proposal,
+//                 topic,
+//                 supersedes,
+//                 ..
+//             }) = cs.insert(&pool).await
+//             {
+//                 assert!(id > 0);
+//                 assert!(status == Status::Active);
+//                 assert!(proposal == "Who goes there");
+//                 assert!(topic == "the topic");
+//                 assert!(supersedes == None);
+//             }
+//         }
+//     }
+// }

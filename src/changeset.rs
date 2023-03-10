@@ -1,8 +1,7 @@
 use sea_query::{Alias, Iden, PostgresQueryBuilder, Query, SimpleExpr};
 use sqlx::postgres::{PgPool, PgRow};
 use sqlx::{Error, Executor};
-use std::fmt::{Debug, Display};
-use std::mem::{self, discriminant};
+use std::mem;
 use std::vec::Vec;
 
 pub trait TableRef {
@@ -91,98 +90,133 @@ where
             Ok(self)
         }
     }
-    // pub async fn insert(self, pool: &PgPool) -> Result<D, Error> {
-    //     pool.fetch_one(self.build_query().as_str())
-    //         .await
-    //         .map(|row| Data::from_row(&row).unwrap())
-    // }
-    // fn build_query(&self) -> String {
-    //     Query::insert()
-    //         .into_table(Data::table_ref())
-    //         .columns(self.changes.clone())
-    //         .values_panic(self.changes.clone().iter().map(|x| x.value()))
-    //         .to_string(PostgresQueryBuilder)
-    // }
+    pub async fn insert(self, pool: &PgPool) -> Result<Data, Error> {
+        if self.valid == false {
+            panic!("Did not call validate before attempting to insert")
+        }
+        pool.fetch_one(self.build_query().as_str())
+            .await
+            .map(|row| Data::from_row(&row).unwrap())
+    }
+    fn build_query(&self) -> String {
+        let changes: Vec<Attr> = self
+            .changes
+            .iter()
+            .map(|Change(attr, _)| attr.clone())
+            .collect();
+
+        Query::insert()
+            .into_table(Data::table_ref())
+            .columns(changes.clone())
+            .values_panic(changes.clone().iter().map(|x| x.value()))
+            .returning(Query::returning().all())
+            .to_string(PostgresQueryBuilder)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::rfc::{RFCAttrs, Status, RFC};
+    // use crate::entities::rfc::{BogusAttrs, RFC};
     //TODO create a bogus enum and stuff here
-    fn setup() -> Changeset<RFCAttrs, RFC> {
-        let cs: Changeset<RFCAttrs, RFC> = Changeset::new(None);
+    // #[derive(Debug, EnumString, AsRefStr, Clone, PartialEq, Eq, Hash)]
+    // #[strum(serialize_all = "lowercase")]
+    #[derive(Debug, Clone, PartialEq, Eq, Iden)]
+    enum BogusAttrs {
+        Field(String),
+        OtherField(String),
+    }
+    impl Valuable for BogusAttrs {
+        fn value(&self) -> SimpleExpr {
+            match self {
+                Self::Field(val) => val.into(),
+                Self::OtherField(val) => val.into(),
+            }
+        }
+    }
+
+    #[derive(Debug, sqlx::FromRow)]
+    struct Bogus {
+        field: String,
+    }
+    impl TableRef for Bogus {
+        fn table_ref() -> Alias {
+            Alias::new("boguses")
+        }
+    }
+    fn setup() -> Changeset<BogusAttrs, Bogus> {
+        let cs: Changeset<BogusAttrs, Bogus> = Changeset::new(None);
         cs
     }
     mod add_change_tests {
-        use super::super::*;
-        use crate::entities::rfc::{RFCAttrs, Status, RFC};
+        use super::*;
 
         #[test]
         #[should_panic]
         fn will_not_accept_duplicate_change_types() {
             let mut cs = super::setup();
-            cs.add_change(RFCAttrs::Status(Status::Active), None);
-            cs.add_change(RFCAttrs::Status(Status::Active), None);
+            cs.add_change(BogusAttrs::Field("".to_string()), None);
+            cs.add_change(BogusAttrs::Field("".to_string()), None);
         }
 
         #[test]
         fn will_accept_distinct_change_types() {
             let mut cs = super::setup();
-            cs.add_change(RFCAttrs::Status(Status::Active), None);
-            cs.add_change(RFCAttrs::Proposal("Whatever".to_string()), None);
-            let changes: Vec<RFCAttrs> = cs.changes.iter().map(|change| change.0.clone()).collect();
+            cs.add_change(BogusAttrs::Field("Whatever".to_string()), None);
+            cs.add_change(BogusAttrs::OtherField("Whatever".to_string()), None);
+            let changes: Vec<BogusAttrs> =
+                cs.changes.iter().map(|change| change.0.clone()).collect();
 
             assert_eq!(
                 vec![
-                    RFCAttrs::Status(Status::Active),
-                    RFCAttrs::Proposal("Whatever".to_string())
+                    BogusAttrs::Field("Whatever".to_string()),
+                    BogusAttrs::OtherField("Whatever".to_string())
                 ],
                 changes
             )
         }
     }
     mod validate_tests {
-        use std::panic::panic_any;
+        use super::*;
 
-        use super::super::*;
-        use crate::{
-            changeset,
-            entities::rfc::{RFCAttrs, Status, RFC},
-        };
         #[test]
-        fn fails_if_validations_not_passing() -> Result<(), &'static str> {
+        fn fails_if_validations_not_passing() {
             let mut cs = super::setup();
-            let too_long = |proposal: &RFCAttrs| {
-                let prop = panic_if_not_match!(<RFCAttrs>::Proposal(prop), proposal);
-                if prop.len() > 1 {
-                    Err("Proposal too long")
+            let too_long = |given_field: &BogusAttrs| {
+                let field = panic_if_not_match!(<BogusAttrs>::Field(field), given_field);
+                if field.len() > 1 {
+                    Err("field too long")
                 } else {
                     Ok(())
                 }
             };
             cs.add_change(
-                RFCAttrs::Proposal("Whatever".to_string()),
+                BogusAttrs::Field("Whatever".to_string()),
                 Some(vec![Box::new(too_long)]),
             );
             if let Err(messages) = cs.validate() {
                 assert_eq!(messages, vec!["Proposal too long"]);
-                Ok(())
             } else {
                 panic!()
             }
         }
+
+        #[test]
+        fn fails_if_there_are_no_changes() {}
     }
-    //
-    // mod insert_tests {
-    //     use sqlx::PgPool;
-    //     #[sqlx::test]
-    //     fn will_not_insert_unless_valid(_pool: PgPool) {
-    //         assert!(false)
-    //     }
-    //     #[sqlx::test]
-    //     fn renders_back_sane_error_if_borked(_pool: PgPool) {
-    //         assert!(false)
-    //     }
-    // }
+
+    mod insert_tests {
+        use super::*;
+        use sqlx::PgPool;
+
+        #[sqlx::test]
+        #[should_panic]
+        fn will_not_insert_unless_valid(pool: PgPool) {
+            let mut cs = setup();
+            cs.add_change(BogusAttrs::Field("Who goes there".to_string()), None);
+            if let Err(e) = cs.insert(&pool).await {
+                dbg!(e);
+            };
+        }
+    }
 }
