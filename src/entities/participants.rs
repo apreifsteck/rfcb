@@ -29,6 +29,5 @@ pub async fn create_one(pool: &PgPool, username: &str) -> Result<Participant, Er
 #[sqlx::test]
 async fn works(pool: PgPool) {
     let participant = create_one(&pool, "Austin").await.unwrap();
-    println!("{:?}", participant);
     assert_eq!("Austin", participant.username);
 }
