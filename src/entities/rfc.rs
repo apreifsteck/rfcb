@@ -71,6 +71,11 @@ pub async fn create(pool: &PgPool, proposal: &str, topic: &str) -> Result<RFC, C
     repo::insert(pool, cs).await
 }
 
+// TODO
+// So I guess we have create done-ish. Maybe we need to create a search wrapper?
+// I'm thinking maybe there could be something like a Query type/enum? Maybe theres like an
+// IDQuery and a ParameterQuery and these implement maybe a Queryable trait from the repo?
+
 #[cfg(test)]
 mod tests {
     mod create_tests {
