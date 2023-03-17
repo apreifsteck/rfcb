@@ -1,9 +1,10 @@
 use crate::changeset::{Changeset, TableRef, Valuable};
+use crate::repo::{self, ChangeError};
 use sea_query::expr::SimpleExpr;
 use sea_query::types::Alias;
 use sea_query::Iden;
-use sqlx::postgres::{PgPool, PgRow};
 use sqlx::types::chrono::{DateTime, Utc};
+use sqlx::PgPool;
 use std::hash::Hash;
 use std::str::FromStr;
 use strum::EnumString;
@@ -61,36 +62,36 @@ impl Valuable for RFCAttrs {
     }
 }
 
-// fn create(proposal: &str, topic: &str) -> Result<RFC> {
-//     let cs: Changeset<RFCAttrs, RFC> = Changeset::new(None);
-//     //TODO add validations
-//     cs.add_change(RFCAttrs::Topic(topic.to_string()), None);
-//     cs.add_change(RFCAttrs::Proposal(proposal.to_string()), None);
-//     cs.validate()?.insert(&pool).await.unwrap()
-// }
+pub async fn create(pool: &PgPool, proposal: &str, topic: &str) -> Result<RFC, ChangeError> {
+    let mut cs: Changeset<RFCAttrs, RFC> = Changeset::new(None);
+    //TODO add validations
+    cs.add_change(RFCAttrs::Topic(topic.to_string()), None);
+    cs.add_change(RFCAttrs::Proposal(proposal.to_string()), None);
+    cs.add_change(RFCAttrs::Status(Status::Active), None);
+    repo::insert(pool, cs).await
+}
 
-// #[cfg(test)]
-// mod tests {
-//     mod more_test {
-//         #[sqlx::test]
-//         fn returns_struct_when_valid(pool: PgPool) {
-//             let mut cs = setup();
-//             cs.validate().unwrap();
-//             if let Ok(RFC {
-//                 id,
-//                 status,
-//                 proposal,
-//                 topic,
-//                 supersedes,
-//                 ..
-//             }) = cs.insert(&pool).await
-//             {
-//                 assert!(id > 0);
-//                 assert!(status == Status::Active);
-//                 assert!(proposal == "Who goes there");
-//                 assert!(topic == "the topic");
-//                 assert!(supersedes == None);
-//             }
-//         }
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    mod create_tests {
+        use super::super::*;
+        #[sqlx::test]
+        fn returns_struct_when_valid(pool: PgPool) {
+            if let Ok(RFC {
+                id,
+                status,
+                proposal,
+                topic,
+                supersedes,
+                ..
+            }) = create(&pool, "Who goes there", "the topic").await
+            {
+                assert!(id > 0);
+                assert!(status == Status::Active);
+                assert!(proposal == "Who goes there");
+                assert!(topic == "the topic");
+                assert!(supersedes == None);
+            }
+        }
+    }
+}

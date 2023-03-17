@@ -1,6 +1,5 @@
+use crate::repo::{ChangeError, Insertable, Validatable};
 use sea_query::{Alias, Iden, PostgresQueryBuilder, Query, SimpleExpr};
-use sqlx::postgres::{PgPool, PgRow};
-use sqlx::{Error, Executor};
 use std::mem;
 use std::vec::Vec;
 
@@ -42,16 +41,7 @@ pub struct Changeset<Attr, Data> {
     valid: bool,
 }
 
-#[derive(Debug)]
-pub enum ChangestError {
-    DBError(sqlx::Error),
-    ValidationError(Vec<&'static str>),
-}
-impl<'a, Attr, Data> Changeset<Attr, Data>
-where
-    Attr: Eq + Iden + Valuable + Clone + 'static + std::fmt::Debug,
-    for<'b> Data: TableRef + sqlx::FromRow<'b, PgRow>,
-{
+impl<'a, Attr, Data> Changeset<Attr, Data> {
     pub fn new(backing_data: Option<Data>) -> Self {
         Changeset {
             changes: Vec::new(),
@@ -74,7 +64,9 @@ where
         }
         self
     }
-    pub fn validate(&mut self) -> Result<&mut Self, ChangestError> {
+}
+impl<Attr, Data> Validatable for Changeset<Attr, Data> {
+    fn validate(&self) -> Result<(), ChangeError> {
         let mut errors_acc = vec![];
 
         let errors = self.changes.iter().fold(
@@ -89,22 +81,18 @@ where
             },
         );
         if errors.len() > 0 {
-            Err(ChangestError::ValidationError(errors_acc))
+            Err(ChangeError::ValidationError(errors_acc))
         } else {
-            self.valid = true;
-            Ok(self)
+            Ok(())
         }
     }
-    pub async fn insert(self, pool: &PgPool) -> Result<Data, ChangestError> {
-        if self.valid == false {
-            panic!("Did not call validate before attempting to insert")
-        }
-        match pool.fetch_one(self.build_query().as_str()).await {
-            Ok(row) => Data::from_row(&row).map_err(|error| ChangestError::DBError(error)),
-            Err(err) => Err(ChangestError::DBError(err)),
-        }
-    }
-    fn build_query(&self) -> String {
+}
+impl<Attr, Data> Insertable for Changeset<Attr, Data>
+where
+    Attr: Iden + Valuable + Clone + 'static + std::fmt::Debug,
+    Data: TableRef,
+{
+    fn to_sql(&self) -> String {
         let changes: Vec<Attr> = self
             .changes
             .iter()
@@ -123,10 +111,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    // use crate::entities::rfc::{BogusAttrs, RFC};
-    //TODO create a bogus enum and stuff here
-    // #[derive(Debug, EnumString, AsRefStr, Clone, PartialEq, Eq, Hash)]
-    // #[strum(serialize_all = "lowercase")]
     #[derive(Debug, Clone, PartialEq, Eq, Iden)]
     enum BogusAttrs {
         Field(String),
@@ -142,9 +126,7 @@ mod tests {
     }
 
     #[derive(Debug, sqlx::FromRow)]
-    struct Bogus {
-        field: String,
-    }
+    struct Bogus {}
     impl TableRef for Bogus {
         fn table_ref() -> Alias {
             Alias::new("boguses")
@@ -200,7 +182,7 @@ mod tests {
                 BogusAttrs::Field("Whatever".to_string()),
                 Some(vec![Box::new(too_long)]),
             );
-            if let Err(ChangestError::ValidationError(messages)) = cs.validate() {
+            if let Err(ChangeError::ValidationError(messages)) = cs.validate() {
                 assert_eq!(messages, vec!["field too long"]);
             } else {
                 panic!()
@@ -209,20 +191,5 @@ mod tests {
 
         #[test]
         fn fails_if_there_are_no_changes() {}
-    }
-
-    mod insert_tests {
-        use super::*;
-        use sqlx::PgPool;
-
-        #[sqlx::test]
-        #[should_panic]
-        fn will_not_insert_unless_valid(pool: PgPool) {
-            let mut cs = setup();
-            cs.add_change(BogusAttrs::Field("Who goes there".to_string()), None);
-            if let Err(e) = cs.insert(&pool).await {
-                dbg!(e);
-            };
-        }
     }
 }
