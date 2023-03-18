@@ -1,5 +1,5 @@
-use crate::changeset::{Changeset, TableRef, Valuable};
-use crate::repo::{self, ChangeError};
+use crate::changeset::{Changeset, Valuable};
+use crate::repo::{self, ChangeError, TableRef};
 use sea_query::expr::SimpleExpr;
 use sea_query::types::Alias;
 use sea_query::Iden;
@@ -45,11 +45,16 @@ impl TableRef for RFC {
     }
 }
 
-#[derive(Debug, Iden, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Iden, Clone)]
 enum RFCAttrs {
     Status(Status),
     Proposal(String),
     Topic(String),
+}
+
+#[derive(Debug, Iden, Clone)]
+enum RFCSelectAttrs {
+    ID,
 }
 
 impl Valuable for RFCAttrs {
@@ -79,6 +84,8 @@ pub async fn create(pool: &PgPool, proposal: &str, topic: &str) -> Result<RFC, C
 #[cfg(test)]
 mod tests {
     mod create_tests {
+        use sea_query::{Expr, Query};
+
         use super::super::*;
         #[sqlx::test]
         fn returns_struct_when_valid(pool: PgPool) {

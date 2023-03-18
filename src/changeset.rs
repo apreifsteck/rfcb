@@ -1,11 +1,8 @@
-use crate::repo::{ChangeError, Insertable, Validatable};
+use crate::repo::{ChangeError, Insertable, TableRef, Validatable};
 use sea_query::{Alias, Iden, PostgresQueryBuilder, Query, SimpleExpr};
 use std::mem;
 use std::vec::Vec;
 
-pub trait TableRef {
-    fn table_ref() -> Alias;
-}
 pub trait Valuable {
     fn value(&self) -> SimpleExpr;
 }
