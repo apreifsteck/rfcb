@@ -10,9 +10,10 @@ use std::str::FromStr;
 use strum::EnumString;
 use strum_macros::AsRefStr;
 
+type ID = i32;
 #[derive(Debug, sqlx::FromRow)]
 pub struct RFC {
-    pub id: i32,
+    pub id: ID,
     #[sqlx(try_from = "String")]
     pub status: Status,
     pub proposal: String,
@@ -35,7 +36,7 @@ pub enum Status {
 impl TryFrom<String> for Status {
     type Error = &'static str;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Status::from_str(value.as_ref()).or(Err("Something borked in DB"))
+        Status::from_str(value.as_ref()).or(Err("Failed to serialize value to RFC::Status"))
     }
 }
 
@@ -82,6 +83,15 @@ pub async fn create(pool: &PgPool, proposal: &str, topic: &str) -> Result<RFC, C
 // IDQuery and a ParameterQuery and these implement maybe a Queryable trait from the repo?
 
 #[cfg(test)]
+pub async fn factory(pool: &PgPool) -> RFC {
+    use fake::faker::lorem::en::*;
+    use fake::{Dummy, Fake, Faker};
+
+    let words = || Words(3..5).fake::<Vec<String>>().join(" ");
+    let proposal = words();
+    let topic = words();
+    create(pool, &proposal, &topic).await.unwrap()
+}
 mod tests {
     mod create_tests {
         use sea_query::{Expr, Query};
