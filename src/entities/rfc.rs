@@ -71,29 +71,25 @@ impl Validatable for RFCAttrs {
     }
 }
 
-pub async fn create(pool: &PgPool, attrs: RFCAttrs) -> Result<RFC, ChangeError> {
-    repo::insert(pool, attrs).await
-}
-
 // TODO
 // So I guess we have create done-ish. Maybe we need to create a search wrapper?
 // I'm thinking maybe there could be something like a Query type/enum? Maybe theres like an
 // IDQuery and a ParameterQuery and these implement maybe a Queryable trait from the repo?
 
-#[cfg(test)]
+// #[cfg(test)]
 pub async fn factory(pool: &PgPool) -> RFC {
     use fake::faker::lorem::en::*;
-    use fake::{Dummy, Fake, Faker};
+    use fake::Fake;
 
     let words = || Words(3..5).fake::<Vec<String>>().join(" ");
     let proposal = words();
     let topic = words();
     let attrs = RFCAttrs { topic, proposal };
-    create(pool, attrs).await.unwrap()
+    repo::insert(pool, attrs).await.unwrap()
 }
+#[cfg(test)]
 mod tests {
-    mod create_tests {
-        use sea_query::{Expr, Query};
+    mod sanity_check {
 
         use super::super::*;
         #[sqlx::test]
@@ -109,7 +105,7 @@ mod tests {
                 topic,
                 supersedes,
                 ..
-            }) = create(&pool, attrs).await
+            }) = repo::insert(&pool, attrs).await
             {
                 assert!(id > 0);
                 assert!(status == Status::Active);

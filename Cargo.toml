@@ -14,11 +14,12 @@ strum_macros = "0.24"
 strum = { version = "0.24", features = ["derive"] }
 chrono = "0.4"
 validator = { version = "0.15", features = ["derive"] }
-
-
-[dev-dependencies]
 fake = "2.5"
 rand = "0.8"
+
+# [dev-dependencies]
+# fake = "2.5"
+# rand = "0.8"
 
 [profile.dev.package.sqlx-macros]
 opt-level = 3

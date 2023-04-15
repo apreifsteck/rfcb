@@ -5,6 +5,8 @@ use sqlx::{postgres::PgRow, PgPool};
 #[derive(Debug)]
 pub enum ChangeError {
     DBError(sqlx::Error),
+    // TODO will probably have to change this once we actually put validation on
+    // some of these things
     ValidationError(Vec<&'static str>),
 }
 pub trait Insertable: TableRef {
