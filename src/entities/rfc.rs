@@ -1,8 +1,9 @@
-use crate::changeset::{Changeset, Valuable};
-use crate::repo::{self, ChangeError, TableRef};
-use sea_query::expr::SimpleExpr;
+// use crate::changeset::{Changeset, Valuable};
+use crate::repo::{self, ChangeError, Insertable, TableRef, Validatable};
+// use sea_query::expr::SimpleExpr;
+use sea_query::enum_def;
 use sea_query::types::Alias;
-use sea_query::Iden;
+use sea_query::InsertStatement;
 use sqlx::types::chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::hash::Hash;
@@ -40,41 +41,38 @@ impl TryFrom<String> for Status {
     }
 }
 
-impl TableRef for RFC {
+#[derive(Debug, Clone)]
+#[enum_def]
+pub struct RFCAttrs {
+    // status: Status,
+    proposal: String,
+    topic: String,
+}
+
+impl TableRef for RFCAttrs {
     fn table_ref() -> Alias {
         Alias::new("request_for_comments")
     }
 }
 
-#[derive(Debug, Iden, Clone)]
-enum RFCAttrs {
-    Status(Status),
-    Proposal(String),
-    Topic(String),
-}
-
-#[derive(Debug, Iden, Clone)]
-enum RFCSelectAttrs {
-    ID,
-}
-
-impl Valuable for RFCAttrs {
-    fn value(&self) -> SimpleExpr {
-        match self {
-            Self::Status(status) => status.as_ref().into(),
-            Self::Proposal(p) => p.into(),
-            Self::Topic(t) => t.into(),
-        }
+type A = RFCAttrsIden;
+impl Insertable for RFCAttrs {
+    type Output = RFC;
+    fn inject_values<'a>(&'a self, starter_query: &'a mut InsertStatement) -> &mut InsertStatement {
+        starter_query
+            .columns([A::Proposal, A::Topic])
+            .values_panic([self.proposal.clone().into(), self.topic.clone().into()])
     }
 }
 
-pub async fn create(pool: &PgPool, proposal: &str, topic: &str) -> Result<RFC, ChangeError> {
-    let mut cs: Changeset<RFCAttrs, RFC> = Changeset::new(None);
-    //TODO add validations
-    cs.add_change(RFCAttrs::Topic(topic.to_string()), None);
-    cs.add_change(RFCAttrs::Proposal(proposal.to_string()), None);
-    cs.add_change(RFCAttrs::Status(Status::Active), None);
-    repo::insert(pool, cs).await
+impl Validatable for RFCAttrs {
+    fn validate(&self) -> Result<(), ChangeError> {
+        Ok(())
+    }
+}
+
+pub async fn create(pool: &PgPool, attrs: RFCAttrs) -> Result<RFC, ChangeError> {
+    repo::insert(pool, attrs).await
 }
 
 // TODO
@@ -90,7 +88,8 @@ pub async fn factory(pool: &PgPool) -> RFC {
     let words = || Words(3..5).fake::<Vec<String>>().join(" ");
     let proposal = words();
     let topic = words();
-    create(pool, &proposal, &topic).await.unwrap()
+    let attrs = RFCAttrs { topic, proposal };
+    create(pool, attrs).await.unwrap()
 }
 mod tests {
     mod create_tests {
@@ -99,6 +98,10 @@ mod tests {
         use super::super::*;
         #[sqlx::test]
         fn returns_struct_when_valid(pool: PgPool) {
+            let attrs = RFCAttrs {
+                proposal: "Who goes there".to_string(),
+                topic: "the topic".to_string(),
+            };
             if let Ok(RFC {
                 id,
                 status,
@@ -106,7 +109,7 @@ mod tests {
                 topic,
                 supersedes,
                 ..
-            }) = create(&pool, "Who goes there", "the topic").await
+            }) = create(&pool, attrs).await
             {
                 assert!(id > 0);
                 assert!(status == Status::Active);

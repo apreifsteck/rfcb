@@ -1,4 +1,4 @@
-use sea_query::{Alias, Expr, PostgresQueryBuilder, Query};
+use sea_query::{Alias, Expr, InsertStatement, PostgresQueryBuilder, Query};
 use sqlx::Executor;
 use sqlx::{postgres::PgRow, PgPool};
 
@@ -7,8 +7,17 @@ pub enum ChangeError {
     DBError(sqlx::Error),
     ValidationError(Vec<&'static str>),
 }
-pub trait Insertable {
-    fn to_sql(&self) -> String;
+pub trait Insertable: TableRef {
+    type Output: for<'b> sqlx::FromRow<'b, PgRow>;
+    fn inject_values<'a>(&'a self, starter_query: &'a mut InsertStatement) -> &mut InsertStatement;
+    fn prepare_query(&self) -> String {
+        let mut starting_query = Query::insert();
+        starting_query.into_table(Self::table_ref());
+        self.inject_values(&mut starting_query);
+        starting_query
+            .returning(Query::returning().all())
+            .to_string(PostgresQueryBuilder)
+    }
 }
 pub trait Queryable {
     fn to_sql(&self) -> String;
@@ -24,13 +33,12 @@ impl Queryable for sea_query::SelectStatement {
 pub trait Validatable {
     fn validate(&self) -> Result<(), ChangeError>;
 }
-pub async fn insert<R, D>(pool: &PgPool, data: D) -> Result<R, ChangeError>
+pub async fn insert<D>(pool: &PgPool, data: D) -> Result<D::Output, ChangeError>
 where
-    R: for<'b> sqlx::FromRow<'b, PgRow>,
     D: Insertable + Validatable,
 {
     data.validate()?;
-    match pool.fetch_one(data.to_sql().as_str()).await {
+    match pool.fetch_one(data.prepare_query().as_str()).await {
         Ok(row) => try_from_row(&row),
         Err(err) => Err(db_error(err)),
     }

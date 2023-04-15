@@ -7,12 +7,14 @@ edition = "2021"
 
 [dependencies]
 sqlx = { version = "0.6", features = [ "runtime-actix-native-tls", "postgres", "macros", "migrate", "chrono" ] }
-sea-query = {version = "0"}
+sea-query = {version = "0", features = ["attr", "with-chrono"]}
 dotenvy = "0.15"
 actix-web = "4"
 strum_macros = "0.24"
 strum = { version = "0.24", features = ["derive"] }
 chrono = "0.4"
+validator = { version = "0.15", features = ["derive"] }
+
 
 [dev-dependencies]
 fake = "2.5"

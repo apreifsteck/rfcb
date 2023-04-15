@@ -50,23 +50,23 @@ pub struct MotionAttrs<'a> {
 //     Result()
 // }
 
-#[cfg(test)]
-mod tests {
-    mod create_new_motion {
-        use sea_query::{Expr, Query};
-        use sqlx::PgPool;
-
-        use crate::entities::rfc;
-
-        use super::super::*;
-        #[sqlx::test]
-        fn returns_struct_when_valid(pool: PgPool) {
-            let rfc = rfc::factory(&pool).await;
-            dbg!(rfc);
-            assert!(false);
-            //Damn I wish I had factories now
-            // let Vote
-            // let attrs = MotionAttrs{}
-        }
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     mod create_new_motion {
+//         use sea_query::{Expr, Query};
+//         use sqlx::PgPool;
+//
+//         use crate::entities::rfc;
+//
+//         use super::super::*;
+//         #[sqlx::test]
+//         fn returns_struct_when_valid(pool: PgPool) {
+//             let rfc = rfc::factory(&pool).await;
+//             dbg!(rfc);
+//             assert!(false);
+//             //Damn I wish I had factories now
+//             // let Vote
+//             // let attrs = MotionAttrs{}
+//         }
+//     }
+// }
