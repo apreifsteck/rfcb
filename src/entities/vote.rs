@@ -1,15 +1,15 @@
-use crate::repo::{Insertable, TableRef, Validatable};
+use crate::repo::{Insertable, Queryable, TableRef, Validatable};
 use chrono::Days;
-use sea_query::{enum_def, Alias};
+use sea_query::{enum_def, Alias, Expr, PostgresQueryBuilder, Query};
 use sqlx::types::chrono::{DateTime, Utc};
 use validator::Validate;
 
 type ID = i32;
 type UtcDate = DateTime<Utc>;
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow, PartialEq, Eq)]
 pub struct Vote {
     pub id: ID,
-    pub request_for_comment_id: ID,
+    pub rfc_id: ID,
     pub deadline: UtcDate,
     pub created_at: UtcDate,
     pub updated_at: UtcDate,
@@ -17,7 +17,7 @@ pub struct Vote {
 
 #[derive(Debug, Validate)]
 #[enum_def]
-struct VoteAttrs {
+pub struct VoteAttrs {
     pub rfc_id: ID,
     pub deadline: Option<UtcDate>,
 }
@@ -41,6 +41,16 @@ impl Insertable for VoteAttrs {
         starter_query
             .columns([VoteAttrsIden::RfcId, VoteAttrsIden::Deadline])
             .values_panic([self.rfc_id.into(), self.deadline.into()])
+    }
+}
+
+impl Queryable for VoteAttrs {
+    fn to_sql(&self) -> String {
+        Query::select()
+            .from(Self::table_ref())
+            .expr(Expr::asterisk())
+            .and_where(Expr::col(VoteAttrsIden::RfcId).eq(self.rfc_id))
+            .to_string(PostgresQueryBuilder)
     }
 }
 

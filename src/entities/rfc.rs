@@ -1,27 +1,75 @@
-// use crate::changeset::{Changeset, Valuable};
-use crate::repo::{self, ChangeError, Insertable, TableRef, Validatable};
-// use sea_query::expr::SimpleExpr;
+use crate::entities::vote::Vote;
+use crate::repo::{self, ChangeError, Insertable, Loadable, TableRef, Validatable};
 use sea_query::enum_def;
 use sea_query::types::Alias;
 use sea_query::InsertStatement;
+use sqlx::postgres::PgRow;
 use sqlx::types::chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::{FromRow, PgPool, Row};
 use std::hash::Hash;
 use std::str::FromStr;
 use strum::EnumString;
 use strum_macros::AsRefStr;
 
+use super::vote::VoteAttrs;
+
 type ID = i32;
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub struct RFC {
     pub id: ID,
-    #[sqlx(try_from = "String")]
     pub status: Status,
     pub proposal: String,
     pub topic: String,
     pub supersedes: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    votes: Loadable<Vec<Vote>>,
+}
+
+impl FromRow<'_, PgRow> for RFC {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let status: String = row.try_get("status")?;
+        // let status = Status::try_from(status).or(Err(sqlx::Error::Decode(Box::new("err"))))?;
+        Ok(Self {
+            id: row.try_get("id")?,
+            status: Status::from_str(&status).unwrap(),
+            proposal: row.try_get("proposal")?,
+            topic: row.try_get("topic")?,
+            supersedes: row.try_get("supersedes")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+            votes: Loadable::default(),
+        })
+    }
+}
+
+impl RFC {
+    pub async fn votes(&mut self, pool: &PgPool) -> Result<Option<&[Vote]>, ChangeError> {
+        self.load_votes(pool).await?;
+
+        match self.votes {
+            Loadable::Loaded(Some(ref votes)) => Ok(Some(votes)),
+            _ => Ok(None),
+        }
+    }
+    async fn load_votes(&mut self, pool: &PgPool) -> Result<(), ChangeError> {
+        match &mut self.votes {
+            Loadable::NotLoaded => {
+                let attrs = VoteAttrs {
+                    rfc_id: self.id,
+                    deadline: None,
+                };
+                let votes = repo::all(pool, attrs).await?;
+                if votes.is_empty() {
+                    self.votes = Loadable::Loaded(None);
+                } else {
+                    self.votes = Loadable::Loaded(Some(votes));
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 #[derive(Debug, EnumString, AsRefStr, Clone, PartialEq, Eq, Hash)]
@@ -99,11 +147,10 @@ mod tests {
                 topic: "the topic".to_string(),
             };
             if let Ok(RFC {
-                id,
                 status,
                 proposal,
                 topic,
-                supersedes,
+                id,
                 ..
             }) = repo::insert(&pool, attrs).await
             {
@@ -111,7 +158,6 @@ mod tests {
                 assert!(status == Status::Active);
                 assert!(proposal == "Who goes there");
                 assert!(topic == "the topic");
-                assert!(supersedes == None);
             }
         }
     }

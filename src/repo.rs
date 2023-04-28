@@ -9,6 +9,20 @@ pub enum ChangeError {
     // some of these things
     ValidationError(Vec<&'static str>),
 }
+
+impl From<sqlx::Error> for ChangeError {
+    fn from(value: sqlx::Error) -> Self {
+        ChangeError::DBError(value)
+    }
+}
+
+#[derive(Debug, Default)]
+pub enum Loadable<T> {
+    #[default]
+    NotLoaded,
+    Loaded(Option<T>),
+}
+
 pub trait Insertable: TableRef {
     type Output: for<'b> sqlx::FromRow<'b, PgRow>;
     fn inject_values<'a>(&'a self, starter_query: &'a mut InsertStatement) -> &mut InsertStatement;
@@ -35,25 +49,36 @@ impl Queryable for sea_query::SelectStatement {
 pub trait Validatable {
     fn validate(&self) -> Result<(), ChangeError>;
 }
-pub async fn insert<D>(pool: &PgPool, data: D) -> Result<D::Output, ChangeError>
+pub async fn insert<I, D>(pool: &PgPool, data: D) -> Result<D::Output, ChangeError>
 where
-    D: Insertable + Validatable,
+    I: for<'b> sqlx::FromRow<'b, PgRow>,
+    D: Insertable<Output = I> + Validatable,
 {
     data.validate()?;
-    match pool.fetch_one(data.prepare_query().as_str()).await {
-        Ok(row) => try_from_row(&row),
-        Err(err) => Err(db_error(err)),
-    }
+    let row = pool.fetch_one(data.prepare_query().as_str()).await?;
+    let obj: D::Output = <D as Insertable>::Output::from_row(&row)?;
+    Ok(obj)
+}
+
+pub async fn all<R>(pool: &PgPool, query: impl Queryable) -> Result<Vec<R>, ChangeError>
+where
+    R: for<'b> sqlx::FromRow<'b, PgRow>,
+{
+    let rows = pool.fetch_all(query.to_sql().as_str()).await?;
+    //TODO: figure out what to do if a read fails
+    Ok(rows
+        .into_iter()
+        .map(|row| R::from_row(&row).unwrap())
+        .collect())
 }
 
 pub async fn one<R>(pool: &PgPool, query: impl Queryable) -> Result<R, ChangeError>
 where
     R: for<'b> sqlx::FromRow<'b, PgRow>,
 {
-    match pool.fetch_one(query.to_sql().as_str()).await {
-        Ok(row) => try_from_row(&row),
-        Err(err) => Err(db_error(err)),
-    }
+    let row = pool.fetch_one(query.to_sql().as_str()).await?;
+    let obj: R = R::from_row(&row)?;
+    Ok(obj)
 }
 
 pub async fn find<R>(pool: &PgPool, id: i32) -> Result<R, ChangeError>
@@ -66,15 +91,4 @@ where
         .and_where(Expr::col(Alias::new("id")).eq(id))
         .to_owned();
     one::<R>(&pool, query).await
-}
-
-fn try_from_row<R>(row: &PgRow) -> Result<R, ChangeError>
-where
-    R: for<'b> sqlx::FromRow<'b, PgRow>,
-{
-    R::from_row(row).map_err(|err| db_error(err))
-}
-
-fn db_error(e: sqlx::Error) -> ChangeError {
-    ChangeError::DBError(e)
 }
