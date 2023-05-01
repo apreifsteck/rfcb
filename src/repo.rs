@@ -23,16 +23,17 @@ pub enum Loadable<T> {
     Loaded(Option<T>),
 }
 
-pub trait TableRef {
+pub trait DBRecord: for<'b> sqlx::FromRow<'b, PgRow> {
     fn table_ref() -> Alias;
+    fn primary_key(&self) -> i32;
 }
 
-pub trait Insertable: Sized + TableRef {
-    type Output: for<'b> sqlx::FromRow<'b, PgRow>;
+pub trait Insertable: Sized {
+    type Output: DBRecord;
     fn inject_values<'a>(self, starter_query: &'a mut InsertStatement) -> &mut InsertStatement;
     fn prepare_query(self) -> String {
         let mut starting_query = Query::insert();
-        starting_query.into_table(Self::table_ref());
+        starting_query.into_table(Self::Output::table_ref());
         self.inject_values(&mut starting_query);
         starting_query
             .returning(Query::returning().all())
@@ -40,13 +41,14 @@ pub trait Insertable: Sized + TableRef {
     }
 }
 pub trait Queryable {
+    type Output: DBRecord;
     fn to_sql(&self) -> String;
 }
-impl Queryable for sea_query::SelectStatement {
-    fn to_sql(&self) -> String {
-        self.to_string(PostgresQueryBuilder)
-    }
-}
+// impl Queryable for sea_query::SelectStatement {
+//     fn to_sql(&self) -> String {
+//         self.to_string(PostgresQueryBuilder)
+//     }
+// }
 pub trait Validatable {
     fn validate(&self) -> Result<(), ChangeError>;
 }

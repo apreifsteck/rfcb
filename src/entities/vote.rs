@@ -1,6 +1,6 @@
 use crate::{
     api_error::APIError,
-    repo::{ChangeError, Insertable, Queryable, TableRef, Validatable},
+    repo::{DBRecord, Insertable, Queryable, Validatable},
 };
 use chrono::Days;
 use sea_query::{enum_def, Alias, Expr, PostgresQueryBuilder, Query};
@@ -50,9 +50,12 @@ impl VoteAttrs {
     }
 }
 
-impl TableRef for VoteAttrs {
+impl DBRecord for Vote {
     fn table_ref() -> Alias {
         Alias::new("votes")
+    }
+    fn primary_key(&self) -> i32 {
+        self.id
     }
 }
 
@@ -69,9 +72,10 @@ impl Insertable for VoteAttrs {
 }
 
 impl Queryable for VoteAttrs {
+    type Output = Vote;
     fn to_sql(&self) -> String {
         Query::select()
-            .from(Self::table_ref())
+            .from(Self::Output::table_ref())
             .expr(Expr::asterisk())
             .and_where(Expr::col(VoteAttrsIden::RfcId).eq(self.rfc_id))
             .to_string(PostgresQueryBuilder)

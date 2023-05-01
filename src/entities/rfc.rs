@@ -1,5 +1,5 @@
 use crate::entities::vote::Vote;
-use crate::repo::{self, ChangeError, Insertable, Loadable, TableRef, Validatable};
+use crate::repo::{self, ChangeError, DBRecord, Insertable, Loadable, Validatable};
 use sea_query::enum_def;
 use sea_query::types::Alias;
 use sea_query::InsertStatement;
@@ -26,21 +26,14 @@ pub struct RFC {
     votes: Loadable<Vec<Vote>>,
 }
 
-impl FromRow<'_, PgRow> for RFC {
-    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
-        let status: String = row.try_get("status")?;
-        // let status = Status::try_from(status).or(Err(sqlx::Error::Decode(Box::new("err"))))?;
-        Ok(Self {
-            id: row.try_get("id")?,
-            status: Status::from_str(&status).unwrap(),
-            proposal: row.try_get("proposal")?,
-            topic: row.try_get("topic")?,
-            supersedes: row.try_get("supersedes")?,
-            created_at: row.try_get("created_at")?,
-            updated_at: row.try_get("updated_at")?,
-            votes: Loadable::default(),
-        })
-    }
+#[derive(Debug, EnumString, AsRefStr, Clone, PartialEq, Eq, Hash)]
+#[strum(serialize_all = "lowercase")]
+pub enum Status {
+    Active,
+    Approved,
+    Denied,
+    Discarded,
+    Obsolete,
 }
 
 impl RFC {
@@ -72,14 +65,30 @@ impl RFC {
     }
 }
 
-#[derive(Debug, EnumString, AsRefStr, Clone, PartialEq, Eq, Hash)]
-#[strum(serialize_all = "lowercase")]
-pub enum Status {
-    Active,
-    Approved,
-    Denied,
-    Discarded,
-    Obsolete,
+impl FromRow<'_, PgRow> for RFC {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let status: String = row.try_get("status")?;
+        // let status = Status::try_from(status).or(Err(sqlx::Error::Decode(Box::new("err"))))?;
+        Ok(Self {
+            id: row.try_get("id")?,
+            status: Status::from_str(&status).unwrap(),
+            proposal: row.try_get("proposal")?,
+            topic: row.try_get("topic")?,
+            supersedes: row.try_get("supersedes")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+            votes: Loadable::default(),
+        })
+    }
+}
+
+impl DBRecord for RFC {
+    fn table_ref() -> Alias {
+        Alias::new("request_for_comments")
+    }
+    fn primary_key(&self) -> i32 {
+        self.id
+    }
 }
 
 impl TryFrom<String> for Status {
@@ -95,12 +104,6 @@ pub struct RFCAttrs<'a> {
     // status: Status,
     proposal: &'a str,
     topic: &'a str,
-}
-
-impl<'a> TableRef for RFCAttrs<'a> {
-    fn table_ref() -> Alias {
-        Alias::new("request_for_comments")
-    }
 }
 
 type A = RFCAttrsIden;

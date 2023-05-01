@@ -1,4 +1,4 @@
-use crate::repo::{Insertable, TableRef, Validatable};
+use crate::repo::{DBRecord, Insertable, Validatable};
 use sea_query::{enum_def, Alias, InsertStatement};
 use sqlx::types::chrono::{DateTime, Utc};
 
@@ -15,9 +15,12 @@ pub struct ParticipantAttrs {
     pub username: String,
 }
 
-impl TableRef for ParticipantAttrs {
+impl DBRecord for Participant {
     fn table_ref() -> Alias {
         Alias::new("participants")
+    }
+    fn primary_key(&self) -> i32 {
+        self.id
     }
 }
 type A = ParticipantAttrsIden;

@@ -1,8 +1,7 @@
 use crate::entities::{participants::Participant, vote::Vote};
-use crate::repo::{ChangeError, Insertable, Queryable, TableRef, Validatable};
+use crate::repo::{ChangeError, DBRecord, Insertable, Queryable, Validatable};
 use sea_query::{enum_def, Alias, Expr, PostgresQueryBuilder, Query};
 use sqlx::types::chrono::{DateTime, Utc};
-use std::process::Output;
 use std::str::FromStr;
 use strum::EnumString;
 use strum_macros::AsRefStr;
@@ -55,9 +54,12 @@ impl<'a> Validatable for MotionAttrs<'a> {
     }
 }
 
-impl<'a> TableRef for MotionAttrs<'a> {
+impl<'a> DBRecord for Motion {
     fn table_ref() -> Alias {
         Alias::new("motions")
+    }
+    fn primary_key(&self) -> i32 {
+        self.id
     }
 }
 impl<'a> Insertable for MotionAttrs<'a> {
@@ -85,16 +87,34 @@ pub struct MotionQuery<'a> {
     pub participant: Option<&'a Participant>,
     pub r#type: Option<Type>,
 }
-
-// impl<'a> Queryable for MotionQuery<'a> {
-//     fn to_sql(&self) -> String {
-//         // Query::select()
-//         //     .from(Self::table_ref())
-//         //     .expr(Expr::asterisk())
-//         //     .and_where(Expr::col(VoteAttrsIden::RfcId).eq(self.rfc_id))
-//         //     .to_string(PostgresQueryBuilder)
+// impl<'a> TableRef for MotionQuery<'a> {
+//     fn table_ref() -> Alias {
+//         Alias::new("motions")
 //     }
 // }
+
+impl<'a> Queryable for MotionQuery<'a> {
+    type Output = Motion;
+    fn to_sql(&self) -> String {
+        // let vote_id = if let Some(Vote { id, .. }) = self.vote {
+        //     Some(id)
+        // } else {
+        //     None
+        // };
+        // let participant_id = if let Some(Participant { id, .. }) = self.participant {
+        //     Some(id)
+        // } else {
+        //     None
+        // };
+        let vote_id = self.vote.map(|x| x.primary_key());
+        let participant_id = self.participant.map(|x| x.primary_key());
+        Query::select()
+            .from(Self::Output::table_ref())
+            .expr(Expr::asterisk())
+            // .and_where(Expr::col(VoteAttrsIden::RfcId).eq(self.rfc_id))
+            .to_string(PostgresQueryBuilder)
+    }
+}
 
 // pub async fn create_new_motion(&MotionAttrs) -> Result<Motion, ChangeError> {
 //     //take motion attrs, upsert into db
