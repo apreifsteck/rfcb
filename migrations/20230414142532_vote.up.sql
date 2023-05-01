@@ -15,6 +15,10 @@ CREATE TABLE motions(
   participant_id integer REFERENCES participants NOT NULL,
   type CHARACTER VARYING NOT NULL,
   comment CHARACTER VARYING,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
 
   UNIQUE(vote_id, participant_id)
-)
+);
+CREATE INDEX motion_vote_id_fk_index ON motions(vote_id);
+CREATE INDEX motion_participant_id_fk_index ON motions(participant_id);

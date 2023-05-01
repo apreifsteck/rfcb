@@ -1,4 +1,4 @@
-use sea_query::{Alias, Expr, InsertStatement, PostgresQueryBuilder, Query};
+use sea_query::{Alias, InsertStatement, PostgresQueryBuilder, Query};
 use sqlx::Executor;
 use sqlx::{postgres::PgRow, PgPool};
 
@@ -23,10 +23,14 @@ pub enum Loadable<T> {
     Loaded(Option<T>),
 }
 
-pub trait Insertable: TableRef {
+pub trait TableRef {
+    fn table_ref() -> Alias;
+}
+
+pub trait Insertable: Sized + TableRef {
     type Output: for<'b> sqlx::FromRow<'b, PgRow>;
-    fn inject_values<'a>(&'a self, starter_query: &'a mut InsertStatement) -> &mut InsertStatement;
-    fn prepare_query(&self) -> String {
+    fn inject_values<'a>(self, starter_query: &'a mut InsertStatement) -> &mut InsertStatement;
+    fn prepare_query(self) -> String {
         let mut starting_query = Query::insert();
         starting_query.into_table(Self::table_ref());
         self.inject_values(&mut starting_query);
@@ -37,9 +41,6 @@ pub trait Insertable: TableRef {
 }
 pub trait Queryable {
     fn to_sql(&self) -> String;
-}
-pub trait TableRef {
-    fn table_ref() -> Alias;
 }
 impl Queryable for sea_query::SelectStatement {
     fn to_sql(&self) -> String {
@@ -81,14 +82,14 @@ where
     Ok(obj)
 }
 
-pub async fn find<R>(pool: &PgPool, id: i32) -> Result<R, ChangeError>
-where
-    R: for<'b> sqlx::FromRow<'b, PgRow> + TableRef,
-{
-    let query = Query::select()
-        .from(R::table_ref())
-        .expr(Expr::asterisk())
-        .and_where(Expr::col(Alias::new("id")).eq(id))
-        .to_owned();
-    one::<R>(&pool, query).await
-}
+// pub async fn find<R>(pool: &PgPool, id: i32) -> Result<R, ChangeError>
+// where
+//     R: for<'b> sqlx::FromRow<'b, PgRow> + TableRef,
+// {
+//     let query = Query::select()
+//         .from(R::table_ref())
+//         .expr(Expr::asterisk())
+//         .and_where(Expr::col(Alias::new("id")).eq(id))
+//         .to_owned();
+//     one::<R>(&pool, query).await
+// }

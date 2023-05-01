@@ -91,29 +91,29 @@ impl TryFrom<String> for Status {
 
 #[derive(Debug, Clone)]
 #[enum_def]
-pub struct RFCAttrs {
+pub struct RFCAttrs<'a> {
     // status: Status,
-    proposal: String,
-    topic: String,
+    proposal: &'a str,
+    topic: &'a str,
 }
 
-impl TableRef for RFCAttrs {
+impl<'a> TableRef for RFCAttrs<'a> {
     fn table_ref() -> Alias {
         Alias::new("request_for_comments")
     }
 }
 
 type A = RFCAttrsIden;
-impl Insertable for RFCAttrs {
+impl<'a> Insertable for RFCAttrs<'a> {
     type Output = RFC;
-    fn inject_values<'a>(&'a self, starter_query: &'a mut InsertStatement) -> &mut InsertStatement {
+    fn inject_values<'b>(self, starter_query: &'b mut InsertStatement) -> &mut InsertStatement {
         starter_query
             .columns([A::Proposal, A::Topic])
-            .values_panic([self.proposal.clone().into(), self.topic.clone().into()])
+            .values_panic([self.proposal.into(), self.topic.into()])
     }
 }
 
-impl Validatable for RFCAttrs {
+impl<'a> Validatable for RFCAttrs<'a> {
     fn validate(&self) -> Result<(), ChangeError> {
         Ok(())
     }
@@ -124,7 +124,7 @@ impl Validatable for RFCAttrs {
 // I'm thinking maybe there could be something like a Query type/enum? Maybe theres like an
 // IDQuery and a ParameterQuery and these implement maybe a Queryable trait from the repo?
 
-// #[cfg(test)]
+#[cfg(test)]
 pub async fn factory(pool: &PgPool) -> RFC {
     use fake::faker::lorem::en::*;
     use fake::Fake;
@@ -132,7 +132,10 @@ pub async fn factory(pool: &PgPool) -> RFC {
     let words = || Words(3..5).fake::<Vec<String>>().join(" ");
     let proposal = words();
     let topic = words();
-    let attrs = RFCAttrs { topic, proposal };
+    let attrs = RFCAttrs {
+        topic: &topic,
+        proposal: &proposal,
+    };
     repo::insert(pool, attrs).await.unwrap()
 }
 #[cfg(test)]
@@ -143,8 +146,8 @@ mod tests {
         #[sqlx::test]
         fn returns_struct_when_valid(pool: PgPool) {
             let attrs = RFCAttrs {
-                proposal: "Who goes there".to_string(),
-                topic: "the topic".to_string(),
+                proposal: "Who goes there",
+                topic: "the topic",
             };
             if let Ok(RFC {
                 status,
