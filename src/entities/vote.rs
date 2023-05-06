@@ -1,6 +1,6 @@
 use crate::{
     api_error::APIError,
-    repo::{DBRecord, Insertable, Queryable, Validatable},
+    repo::{self, DBRecord, Insertable, Queryable, Validatable},
 };
 use chrono::Days;
 use sea_query::{enum_def, Alias, Expr, PostgresQueryBuilder, Query};
@@ -18,18 +18,35 @@ pub struct Vote {
     pub updated_at: UtcDate,
 }
 
-impl Vote {
-    pub fn make_new_motion(&self, motion: MotionAttrs) -> Result<(), APIError> {
-        // types of errors:
-        // - DB Error
-        // - Vote could have already been finished
-        // if deadline is passed, return vote error
-        // Else upsert to database
-
+pub async fn make_new_motion<'a>(
+    pool: &sqlx::PgPool,
+    motion: MotionAttrs<'a>,
+) -> Result<(), APIError<'a>> {
+    // types of errors:
+    // - DB Error
+    // - Vote could have already been finished
+    // if deadline is passed, return vote error
+    // Else upsert to database
+    if motion.vote.is_time_past_deadline(Utc::now()) {
+        VoteError {
+            vote: motion.vote,
+            participant: motion.participant,
+            message: format!(
+                "Attempted to pass a motion for a vote at {} when deadline is {}",
+                Utc::now(),
+                motion.vote.deadline
+            ),
+        }
+        .into()
+    } else {
         Ok(())
-    }
-    fn check_deadline_passed(&self, time: UtcDate) -> bool {
-        time <= self.deadline
+    }?;
+    repo::insert(pool, motion).await?;
+    Ok(())
+}
+impl Vote {
+    fn is_time_past_deadline(&self, time: UtcDate) -> bool {
+        time > self.deadline
     }
 }
 
@@ -95,6 +112,12 @@ pub struct VoteError<'a> {
     pub participant: &'a Participant,
 }
 
+impl<'a> From<VoteError<'a>> for Result<(), VoteError<'a>> {
+    fn from(value: VoteError<'a>) -> Self {
+        Err(value)
+    }
+}
+
 // So here is the question... Does this object recieve an RFC,
 // automaticall requiring a trip to the database, or does it just
 // accept an ID, and trust whatever came before is secure and gave it good stuff?
@@ -102,8 +125,6 @@ pub struct VoteError<'a> {
 use super::{motion::MotionAttrs, participants::Participant};
 #[cfg(test)]
 pub async fn factory(pool: &sqlx::PgPool, rfc_id: ID) -> Vote {
-    use crate::repo;
-
     let mut attrs = VoteAttrs {
         rfc_id,
         deadline: None,
@@ -161,10 +182,11 @@ mod tests {
         use crate::{
             api_error::APIError,
             entities::{
-                motion::{MotionAttrs, Type},
+                motion::{MotionAttrs, MotionQuery, Type},
                 participants::{self, Participant},
                 rfc, vote,
             },
+            repo,
         };
         fn participant() -> Participant {
             let now = Utc::now();
@@ -186,8 +208,9 @@ mod tests {
             }
         }
 
-        #[test]
-        fn returns_error_if_current_date_after_deadline() {
+        #[sqlx::test]
+        fn returns_error_if_current_date_after_deadline(pool: sqlx::PgPool) {
+            use regex::Regex;
             let one_day_ago = Utc::now().checked_sub_days(Days::new(1)).unwrap();
             let mut vote = vote();
             vote.deadline = one_day_ago;
@@ -198,14 +221,31 @@ mod tests {
                 r#type: Type::Accept,
                 comment: None,
             };
-            if let APIError::VoteError(result) = vote.make_new_motion(motion_attrs).unwrap_err() {
+            if let APIError::VoteError(result) = vote::make_new_motion(&pool, motion_attrs)
+                .await
+                .unwrap_err()
+            {
                 let expected_error = VoteError {
                     participant: &participant,
                     vote: &vote,
-                    message: "attempted to create motion for a vote after its deadline is passed"
-                        .to_string(),
+                    message: format!(
+                        "Attempted to pass motion for a vote at {} when deadline is {}",
+                        Utc::now(),
+                        vote.deadline
+                    ),
                 };
-                assert_eq!(expected_error, result)
+                assert_eq!(expected_error.participant.id, result.participant.id);
+                assert_eq!(expected_error.vote.id, result.vote.id);
+                let date_regex = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6} UTC";
+                let message_regex = Regex::new(
+                    (r"Attempted to pass motion for a vote at ".to_owned()
+                        + date_regex
+                        + " when deadline is "
+                        + date_regex)
+                        .as_str(),
+                )
+                .unwrap();
+                assert!(message_regex.is_match(expected_error.message.as_str()))
             } else {
                 panic!()
             }
@@ -225,9 +265,41 @@ mod tests {
                 r#type: Type::Accept,
                 comment: None,
             };
-            vote.make_new_motion(motion_attrs).unwrap();
+            assert!(vote::make_new_motion(&pool, motion_attrs).await.is_ok());
 
-            //assert Repo.get(Motion where vote_id = vote.id) == [motion_attrs]
+            let created_motion = repo::one(
+                &pool,
+                MotionQuery {
+                    vote: Some(&vote),
+                    participant: Some(&participant),
+                    r#type: None,
+                },
+            )
+            .await
+            .unwrap();
+            dbg!(created_motion);
+            // assert Repo.get(Motion where vote_id = vote.id) == [motion_attrs]
+            //TODO make a vote.motions() function that returns all the motions, with their
+            //participants loaded in.
+        }
+        #[sqlx::test]
+        fn upserts_for_duplicate_motions(pool: sqlx::PgPool) {
+            let rfc = rfc::factory(&pool).await;
+            let mut vote = vote::factory(&pool, rfc.id).await;
+            let participant = participants::factory(&pool).await;
+
+            let one_day_from_now = Utc::now().checked_add_days(Days::new(1)).unwrap();
+            vote.deadline = one_day_from_now;
+
+            let motion_attrs = MotionAttrs {
+                vote: &vote,
+                participant: &participant,
+                r#type: Type::Accept,
+                comment: None,
+            };
+            assert!(vote::make_new_motion(&pool, motion_attrs).await.is_ok())
+
+            // assert Repo.get(Motion where vote_id = vote.id) == [motion_attrs]
             //TODO make a vote.motions() function that returns all the motions, with their
             //participants loaded in.
         }

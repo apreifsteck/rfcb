@@ -1,5 +1,4 @@
 use crate::entities::vote::VoteError;
-use crate::entities::*;
 use crate::repo::ChangeError;
 
 #[derive(Debug)]

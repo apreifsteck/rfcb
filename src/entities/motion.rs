@@ -1,6 +1,6 @@
 use crate::entities::{participants::Participant, vote::Vote};
 use crate::repo::{ChangeError, DBRecord, Insertable, Queryable, Validatable};
-use sea_query::{enum_def, Alias, Expr, PostgresQueryBuilder, Query};
+use sea_query::{enum_def, Alias, Expr, PostgresQueryBuilder, Query, SimpleExpr};
 use sqlx::types::chrono::{DateTime, Utc};
 use std::str::FromStr;
 use strum::EnumString;
@@ -8,6 +8,7 @@ use strum_macros::AsRefStr;
 
 type ID = i32;
 #[derive(Debug, sqlx::FromRow)]
+#[enum_def]
 pub struct Motion {
     pub id: ID,
     pub vote_id: ID,
@@ -20,7 +21,7 @@ pub struct Motion {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, EnumString, AsRefStr, Clone)]
+#[derive(Debug, EnumString, AsRefStr, Clone, PartialEq, Eq)]
 #[strum(serialize_all = "lowercase")]
 pub enum Type {
     Accept,
@@ -40,7 +41,6 @@ impl From<Type> for sea_query::Value {
     }
 }
 
-#[enum_def]
 pub struct MotionAttrs<'a> {
     pub vote: &'a Vote,
     pub participant: &'a Participant,
@@ -87,39 +87,32 @@ pub struct MotionQuery<'a> {
     pub participant: Option<&'a Participant>,
     pub r#type: Option<Type>,
 }
-// impl<'a> TableRef for MotionQuery<'a> {
-//     fn table_ref() -> Alias {
-//         Alias::new("motions")
-//     }
-// }
 
 impl<'a> Queryable for MotionQuery<'a> {
     type Output = Motion;
     fn to_sql(&self) -> String {
-        // let vote_id = if let Some(Vote { id, .. }) = self.vote {
-        //     Some(id)
-        // } else {
-        //     None
-        // };
-        // let participant_id = if let Some(Participant { id, .. }) = self.participant {
-        //     Some(id)
-        // } else {
-        //     None
-        // };
-        let vote_id = self.vote.map(|x| x.primary_key());
-        let participant_id = self.participant.map(|x| x.primary_key());
-        Query::select()
+        let vote_id: Option<SimpleExpr> = self.vote.map(|x| x.primary_key().into());
+        let participant_id: Option<SimpleExpr> = self.participant.map(|x| x.primary_key().into());
+        let alias = |x| Alias::new(x);
+        let colums_and_values = [
+            (alias("vote_id"), vote_id),
+            (alias("participant_id"), participant_id),
+            (alias("type"), self.r#type.clone().map(|x| x.into())),
+        ]
+        .into_iter()
+        .filter(|(_attr, optional_expr)| optional_expr.is_some())
+        .map(|(attr, expr)| (attr, expr.unwrap()));
+        let mut query = Query::select()
             .from(Self::Output::table_ref())
             .expr(Expr::asterisk())
-            // .and_where(Expr::col(VoteAttrsIden::RfcId).eq(self.rfc_id))
+            .to_owned();
+        colums_and_values
+            .fold(&mut query, |acc_query, (col, val)| {
+                acc_query.and_where(Expr::col(col).eq(val))
+            })
             .to_string(PostgresQueryBuilder)
     }
 }
-
-// pub async fn create_new_motion(&MotionAttrs) -> Result<Motion, ChangeError> {
-//     //take motion attrs, upsert into db
-//     Result()
-// }
 
 #[cfg(test)]
 mod tests {
@@ -138,10 +131,10 @@ mod tests {
             comment: Some("Hello"),
         };
 
-        let result = repo::insert(&pool, attrs).await;
-        dbg!(result);
-        //Damn I wish I had factories now
-        // let Vote
-        // let attrs = MotionAttrs{}
+        let result = repo::insert(&pool, attrs).await.unwrap();
+        assert_eq!(result.participant_id, participant.id);
+        assert_eq!(result.vote_id, vote.id);
+        assert_eq!(result.comment, Some("Hello".to_string()));
+        assert_eq!(result.r#type, Type::Accept);
     }
 }

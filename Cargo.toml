@@ -17,7 +17,8 @@ validator = { version = "0.15", features = ["derive"] }
 fake = "2.5"
 rand = "0.8"
 
-# [dev-dependencies]
+[dev-dependencies]
+regex = "1.8.1"
 # fake = "2.5"
 # rand = "0.8"
 

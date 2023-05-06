@@ -75,12 +75,13 @@ where
         .collect())
 }
 
-pub async fn one<R>(pool: &PgPool, query: impl Queryable) -> Result<R, ChangeError>
+pub async fn one<D, R>(pool: &PgPool, query: R) -> Result<R::Output, ChangeError>
 where
-    R: for<'b> sqlx::FromRow<'b, PgRow>,
+    D: for<'b> sqlx::FromRow<'b, PgRow>,
+    R: Queryable<Output = D>,
 {
     let row = pool.fetch_one(query.to_sql().as_str()).await?;
-    let obj: R = R::from_row(&row)?;
+    let obj: R::Output = R::Output::from_row(&row)?;
     Ok(obj)
 }
 
