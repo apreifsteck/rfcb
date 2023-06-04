@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use sea_query::{Alias, InsertStatement, PostgresQueryBuilder, Query};
 use sqlx::Executor;
 use sqlx::{postgres::PgRow, PgPool};
@@ -16,11 +18,107 @@ impl From<sqlx::Error> for ChangeError {
     }
 }
 
-#[derive(Debug, Default)]
-pub enum Loadable<T> {
-    #[default]
+#[derive(Debug)]
+enum Loadable<T> {
+    Loaded(Data<T>),
     NotLoaded,
-    Loaded(Option<T>),
+}
+
+impl<T> Loadable<T> {
+    fn unwrap_to_inner_ref(&self) -> &Data<T> {
+        if let Loadable::Loaded(t) = self {
+            &t
+        } else {
+            panic!()
+        }
+    }
+}
+//
+// Do I need both data and multiplicity?
+#[derive(Clone, Copy, Debug)]
+pub enum Multiplicity {
+    Many,
+    One,
+}
+//
+#[derive(Debug)]
+enum Data<T> {
+    None,
+    One(T),
+    Many(Vec<T>),
+}
+
+impl<T> Data<T> {
+    fn unwrap_option_many(&self) -> Option<&[T]> {
+        match self {
+            Self::None => None,
+            Self::Many(ref d) => Some(d),
+            _ => panic!(),
+        }
+    }
+    fn unwrap_option_one(&self) -> Option<&T> {
+        match self {
+            Self::None => None,
+            Self::One(ref d) => Some(d),
+            _ => panic!(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Association<T: DBRecord> {
+    data: Loadable<T>,
+    load_query: Box<dyn Queryable<Output = T>>,
+    multiplicity: Multiplicity,
+}
+
+impl<T: DBRecord> Association<T> {
+    pub fn new(
+        load_query: impl Queryable<Output = T> + 'static,
+        multiplicity: Multiplicity,
+    ) -> Self {
+        Self {
+            data: Loadable::NotLoaded,
+            load_query: Box::new(load_query),
+            multiplicity,
+        }
+    }
+    pub fn query(&self) -> &dyn Queryable<Output = T> {
+        self.load_query.as_ref()
+    }
+    pub fn is_loaded(&self) -> bool {
+        match self.data {
+            Loadable::NotLoaded => false,
+            Loadable::Loaded(_) => true,
+        }
+    }
+    pub fn multiplicity(&self) -> Multiplicity {
+        self.multiplicity
+    }
+    pub fn unwrap_data_many(&self) -> Option<&[T]> {
+        self.data.unwrap_to_inner_ref().unwrap_option_many()
+    }
+    pub fn unwrap_data_one(&self) -> Option<&T> {
+        self.data.unwrap_to_inner_ref().unwrap_option_one()
+    }
+}
+pub async fn load<D: DBRecord>(
+    pool: &PgPool,
+    assoc: &mut Association<D>,
+) -> Result<(), ChangeError> {
+    match assoc.multiplicity() {
+        Multiplicity::One => {
+            let res: D = one(pool, assoc.query()).await?;
+            assoc.data = Loadable::Loaded(Data::One(res));
+            Ok(())
+        }
+        Multiplicity::Many => {
+            let res = all(pool, assoc.query()).await?;
+            assoc.data = Loadable::Loaded(Data::Many(res.into_iter().collect()));
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 pub trait DBRecord: for<'b> sqlx::FromRow<'b, PgRow> {
@@ -40,18 +138,15 @@ pub trait Insertable: Sized {
             .to_string(PostgresQueryBuilder)
     }
 }
-pub trait Queryable {
+pub trait Queryable: Debug {
     type Output: DBRecord;
     fn to_sql(&self) -> String;
 }
-// impl Queryable for sea_query::SelectStatement {
-//     fn to_sql(&self) -> String {
-//         self.to_string(PostgresQueryBuilder)
-//     }
-// }
+
 pub trait Validatable {
     fn validate(&self) -> Result<(), ChangeError>;
 }
+
 pub async fn insert<I, D>(pool: &PgPool, data: D) -> Result<D::Output, ChangeError>
 where
     I: for<'b> sqlx::FromRow<'b, PgRow>,
@@ -63,25 +158,29 @@ where
     Ok(obj)
 }
 
-pub async fn all<R>(pool: &PgPool, query: impl Queryable) -> Result<Vec<R>, ChangeError>
+pub async fn all<D>(
+    pool: &PgPool,
+    query: &dyn Queryable<Output = D>,
+) -> Result<impl IntoIterator<Item = D>, ChangeError>
 where
-    R: for<'b> sqlx::FromRow<'b, PgRow>,
+    D: DBRecord,
 {
     let rows = pool.fetch_all(query.to_sql().as_str()).await?;
     //TODO: figure out what to do if a read fails
-    Ok(rows
+    let objs: Vec<D> = rows
         .into_iter()
-        .map(|row| R::from_row(&row).unwrap())
-        .collect())
+        .map(|row| D::from_row(&row).unwrap())
+        .collect();
+    Ok(objs)
 }
 
-pub async fn one<D, R>(pool: &PgPool, query: R) -> Result<R::Output, ChangeError>
+// TODO what happens when there's no matching row?
+pub async fn one<D>(pool: &PgPool, query: &dyn Queryable<Output = D>) -> Result<D, ChangeError>
 where
-    D: for<'b> sqlx::FromRow<'b, PgRow>,
-    R: Queryable<Output = D>,
+    D: DBRecord,
 {
     let row = pool.fetch_one(query.to_sql().as_str()).await?;
-    let obj: R::Output = R::Output::from_row(&row)?;
+    let obj: D = D::from_row(&row)?;
     Ok(obj)
 }
 

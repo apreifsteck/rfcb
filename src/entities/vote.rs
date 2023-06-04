@@ -269,7 +269,7 @@ mod tests {
 
             let created_motion = repo::one(
                 &pool,
-                MotionQuery {
+                &MotionQuery {
                     vote: Some(&vote),
                     participant: Some(&participant),
                     r#type: None,
@@ -277,31 +277,8 @@ mod tests {
             )
             .await
             .unwrap();
-            dbg!(created_motion);
-            // assert Repo.get(Motion where vote_id = vote.id) == [motion_attrs]
-            //TODO make a vote.motions() function that returns all the motions, with their
-            //participants loaded in.
-        }
-        #[sqlx::test]
-        fn upserts_for_duplicate_motions(pool: sqlx::PgPool) {
-            let rfc = rfc::factory(&pool).await;
-            let mut vote = vote::factory(&pool, rfc.id).await;
-            let participant = participants::factory(&pool).await;
-
-            let one_day_from_now = Utc::now().checked_add_days(Days::new(1)).unwrap();
-            vote.deadline = one_day_from_now;
-
-            let motion_attrs = MotionAttrs {
-                vote: &vote,
-                participant: &participant,
-                r#type: Type::Accept,
-                comment: None,
-            };
-            assert!(vote::make_new_motion(&pool, motion_attrs).await.is_ok())
-
-            // assert Repo.get(Motion where vote_id = vote.id) == [motion_attrs]
-            //TODO make a vote.motions() function that returns all the motions, with their
-            //participants loaded in.
+            assert_eq!(created_motion.participant_id, participant.id);
+            assert_eq!(created_motion.vote_id, vote.id);
         }
     }
 }

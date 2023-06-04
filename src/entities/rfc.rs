@@ -1,5 +1,7 @@
 use crate::entities::vote::Vote;
-use crate::repo::{self, ChangeError, DBRecord, Insertable, Loadable, Validatable};
+use crate::repo::{
+    self, Association, ChangeError, DBRecord, Insertable, Multiplicity, Validatable,
+};
 use sea_query::enum_def;
 use sea_query::types::Alias;
 use sea_query::InsertStatement;
@@ -23,7 +25,7 @@ pub struct RFC {
     pub supersedes: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    votes: Loadable<Vec<Vote>>,
+    votes: Association<Vote>,
 }
 
 #[derive(Debug, EnumString, AsRefStr, Clone, PartialEq, Eq, Hash)]
@@ -38,30 +40,10 @@ pub enum Status {
 
 impl RFC {
     pub async fn votes(&mut self, pool: &PgPool) -> Result<Option<&[Vote]>, ChangeError> {
-        self.load_votes(pool).await?;
-
-        match self.votes {
-            Loadable::Loaded(Some(ref votes)) => Ok(Some(votes)),
-            _ => Ok(None),
+        if !self.votes.is_loaded() {
+            repo::load(pool, &mut self.votes).await?;
         }
-    }
-    async fn load_votes(&mut self, pool: &PgPool) -> Result<(), ChangeError> {
-        match &mut self.votes {
-            Loadable::NotLoaded => {
-                let attrs = VoteAttrs {
-                    rfc_id: self.id,
-                    deadline: None,
-                };
-                let votes = repo::all(pool, attrs).await?;
-                if votes.is_empty() {
-                    self.votes = Loadable::Loaded(None);
-                } else {
-                    self.votes = Loadable::Loaded(Some(votes));
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        }
+        Ok(self.votes.unwrap_data_many())
     }
 }
 
@@ -69,6 +51,12 @@ impl FromRow<'_, PgRow> for RFC {
     fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
         let status: String = row.try_get("status")?;
         // let status = Status::try_from(status).or(Err(sqlx::Error::Decode(Box::new("err"))))?;
+        let id: ID = row.try_get("id")?;
+        let assoc_query = VoteAttrs {
+            rfc_id: id,
+            deadline: None,
+        };
+        let assoc = Association::new(assoc_query, Multiplicity::Many);
         Ok(Self {
             id: row.try_get("id")?,
             status: Status::from_str(&status).unwrap(),
@@ -77,7 +65,7 @@ impl FromRow<'_, PgRow> for RFC {
             supersedes: row.try_get("supersedes")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
-            votes: Loadable::default(),
+            votes: assoc,
         })
     }
 }
@@ -145,6 +133,8 @@ pub async fn factory(pool: &PgPool) -> RFC {
 mod tests {
     mod sanity_check {
 
+        use crate::entities::vote;
+
         use super::super::*;
         #[sqlx::test]
         fn returns_struct_when_valid(pool: PgPool) {
@@ -165,6 +155,23 @@ mod tests {
                 assert!(proposal == "Who goes there");
                 assert!(topic == "the topic");
             }
+        }
+
+        #[sqlx::test]
+        fn can_get_votes(pool: PgPool) {
+            let mut rfc = factory(&pool).await;
+            let v1 = vote::factory(&pool, rfc.id).await;
+            let v2 = vote::factory(&pool, rfc.id).await;
+
+            let votes: Vec<_> = rfc
+                .votes(&pool)
+                .await
+                .unwrap()
+                .unwrap()
+                .into_iter()
+                .map(|v| v.id)
+                .collect();
+            assert_eq!(vec![v1.id, v2.id], votes)
         }
     }
 }
