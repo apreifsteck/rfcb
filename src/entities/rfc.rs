@@ -1,7 +1,5 @@
 use crate::entities::vote::Vote;
-use crate::repo::{
-    self, Association, ChangeError, DBRecord, Insertable, Multiplicity, Validatable,
-};
+use crate::repo::{self, Association, ChangeError, DBRecord, HasMany, Insertable, Validatable};
 use sea_query::enum_def;
 use sea_query::types::Alias;
 use sea_query::InsertStatement;
@@ -25,7 +23,7 @@ pub struct RFC {
     pub supersedes: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    votes: Association<Vote>,
+    votes: HasMany<Vote>,
 }
 
 #[derive(Debug, EnumString, AsRefStr, Clone, PartialEq, Eq, Hash)]
@@ -43,7 +41,7 @@ impl RFC {
         if !self.votes.is_loaded() {
             repo::load(pool, &mut self.votes).await?;
         }
-        Ok(self.votes.unwrap_data_many())
+        Ok(self.votes.unwrap())
     }
 }
 
@@ -56,7 +54,7 @@ impl FromRow<'_, PgRow> for RFC {
             rfc_id: id,
             deadline: None,
         };
-        let assoc = Association::new(assoc_query, Multiplicity::Many);
+        let assoc = HasMany::new(assoc_query);
         Ok(Self {
             id: row.try_get("id")?,
             status: Status::from_str(&status).unwrap(),

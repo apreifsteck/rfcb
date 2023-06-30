@@ -19,7 +19,7 @@ impl From<sqlx::Error> for ChangeError {
 }
 
 #[derive(Debug)]
-enum Loadable<T> {
+pub enum Loadable<T> {
     Loaded(Data<T>),
     NotLoaded,
 }
@@ -42,21 +42,21 @@ pub enum Multiplicity {
 }
 //
 #[derive(Debug)]
-enum Data<T> {
+pub enum Data<T> {
     None,
     One(T),
     Many(Vec<T>),
 }
 
-impl<T> Data<T> {
-    fn unwrap_option_many(&self) -> Option<&[T]> {
+impl<'a, T: 'a> Data<T> {
+    fn unwrap_option_many(&'a self) -> Option<&'a [T]> {
         match self {
             Self::None => None,
             Self::Many(ref d) => Some(d),
             _ => panic!(),
         }
     }
-    fn unwrap_option_one(&self) -> Option<&T> {
+    fn unwrap_option_one(&'a self) -> Option<&'a T> {
         match self {
             Self::None => None,
             Self::One(ref d) => Some(d),
@@ -65,59 +65,75 @@ impl<T> Data<T> {
     }
 }
 
-#[derive(Debug)]
-pub struct Association<T: DBRecord> {
-    data: Loadable<T>,
-    load_query: Box<dyn Queryable<Output = T>>,
-    multiplicity: Multiplicity,
+pub trait AssociationPrivate<T: DBRecord> {
+    fn query(&self) -> &dyn Queryable<Output = T>;
+    fn multiplicity(&self) -> Multiplicity;
+    fn load(&mut self, data: Loadable<T>);
 }
 
-impl<T: DBRecord> Association<T> {
-    pub fn new(
-        load_query: impl Queryable<Output = T> + 'static,
-        multiplicity: Multiplicity,
-    ) -> Self {
-        Self {
-            data: Loadable::NotLoaded,
-            load_query: Box::new(load_query),
-            multiplicity,
-        }
-    }
-    pub fn query(&self) -> &dyn Queryable<Output = T> {
+pub trait Association<'a, T: DBRecord + 'a>: AssociationPrivate<T> {
+    type Unwrapped;
+    fn is_loaded(&self) -> bool;
+    fn unwrap(&'a self) -> Self::Unwrapped;
+}
+
+#[derive(Debug)]
+pub struct HasMany<T: DBRecord> {
+    data: Loadable<T>,
+    load_query: Box<dyn Queryable<Output = T>>,
+}
+
+impl<T: DBRecord> AssociationPrivate<T> for HasMany<T> {
+    fn query(&self) -> &dyn Queryable<Output = T> {
         self.load_query.as_ref()
     }
-    pub fn is_loaded(&self) -> bool {
+
+    fn multiplicity(&self) -> Multiplicity {
+        Multiplicity::Many
+    }
+    fn load(&mut self, data: Loadable<T>) {
+        self.data = data;
+    }
+}
+
+impl<'a, T: DBRecord + 'a> Association<'a, T> for HasMany<T> {
+    type Unwrapped = Option<&'a [T]>;
+    fn unwrap(&'a self) -> Self::Unwrapped {
+        self.data.unwrap_to_inner_ref().unwrap_option_many()
+    }
+
+    fn is_loaded(&self) -> bool {
         match self.data {
             Loadable::NotLoaded => false,
             Loadable::Loaded(_) => true,
         }
     }
-    pub fn multiplicity(&self) -> Multiplicity {
-        self.multiplicity
-    }
-    pub fn unwrap_data_many(&self) -> Option<&[T]> {
-        self.data.unwrap_to_inner_ref().unwrap_option_many()
-    }
-    pub fn unwrap_data_one(&self) -> Option<&T> {
-        self.data.unwrap_to_inner_ref().unwrap_option_one()
+}
+
+impl<T: DBRecord> HasMany<T> {
+    pub fn new(load_query: impl Queryable<Output = T> + 'static) -> Self {
+        Self {
+            data: Loadable::NotLoaded,
+            load_query: Box::new(load_query),
+        }
     }
 }
+
 pub async fn load<D: DBRecord>(
     pool: &PgPool,
-    assoc: &mut Association<D>,
+    assoc: &mut dyn AssociationPrivate<D>,
 ) -> Result<(), ChangeError> {
     match assoc.multiplicity() {
         Multiplicity::One => {
             let res: D = one(pool, assoc.query()).await?;
-            assoc.data = Loadable::Loaded(Data::One(res));
+            assoc.load(Loadable::Loaded(Data::One(res)));
             Ok(())
         }
         Multiplicity::Many => {
             let res = all(pool, assoc.query()).await?;
-            assoc.data = Loadable::Loaded(Data::Many(res.into_iter().collect()));
+            assoc.load(Loadable::Loaded(Data::Many(res.into_iter().collect())));
             Ok(())
         }
-        _ => Ok(()),
     }
 }
 
