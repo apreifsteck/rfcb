@@ -7,7 +7,7 @@ use strum::EnumString;
 use strum_macros::AsRefStr;
 
 type ID = i32;
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow, PartialEq, Eq)]
 pub struct Motion {
     pub id: ID,
     pub vote_id: ID,
@@ -141,6 +141,22 @@ impl<'a> Queryable for MotionQuery<'a> {
             .fold(&mut query, |acc_query, (col, val)| {
                 acc_query.and_where(Expr::col(col).eq(val))
             })
+            .to_string(PostgresQueryBuilder)
+    }
+}
+
+#[derive(Debug)]
+pub struct MotionAssocQuery {
+    pub vote_id: ID,
+}
+
+impl Queryable for MotionAssocQuery {
+    type Output = Motion;
+    fn to_sql(&self) -> String {
+        Query::select()
+            .from(Self::Output::table_ref())
+            .expr(Expr::asterisk())
+            .and_where(Expr::col(MotionIden::VoteId).eq(self.vote_id))
             .to_string(PostgresQueryBuilder)
     }
 }

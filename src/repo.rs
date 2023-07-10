@@ -18,7 +18,7 @@ impl From<sqlx::Error> for ChangeError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Loadable<T> {
     Loaded(Data<T>),
     NotLoaded,
@@ -41,22 +41,22 @@ pub enum Multiplicity {
     One,
 }
 //
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Data<T> {
     None,
     One(T),
     Many(Vec<T>),
 }
 
-impl<'a, T: 'a> Data<T> {
-    fn unwrap_option_many(&'a self) -> Option<&'a [T]> {
+impl<T> Data<T> {
+    fn unwrap_option_many(&self) -> Option<&[T]> {
         match self {
             Self::None => None,
             Self::Many(ref d) => Some(d),
             _ => panic!(),
         }
     }
-    fn unwrap_option_one(&'a self) -> Option<&'a T> {
+    fn unwrap_option_one(&self) -> Option<&T> {
         match self {
             Self::None => None,
             Self::One(ref d) => Some(d),
@@ -65,13 +65,13 @@ impl<'a, T: 'a> Data<T> {
     }
 }
 
-pub trait AssociationPrivate<T: DBRecord> {
+pub trait AssociationLoader<T: DBRecord> {
     fn query(&self) -> &dyn Queryable<Output = T>;
     fn multiplicity(&self) -> Multiplicity;
     fn load(&mut self, data: Loadable<T>);
 }
 
-pub trait Association<'a, T: DBRecord + 'a>: AssociationPrivate<T> {
+pub trait Association<'a, T: DBRecord + 'a>: AssociationLoader<T> + PartialEq + Eq {
     type Unwrapped;
     fn is_loaded(&self) -> bool;
     fn unwrap(&'a self) -> Self::Unwrapped;
@@ -83,7 +83,7 @@ pub struct HasMany<T: DBRecord> {
     load_query: Box<dyn Queryable<Output = T>>,
 }
 
-impl<T: DBRecord> AssociationPrivate<T> for HasMany<T> {
+impl<T: DBRecord> AssociationLoader<T> for HasMany<T> {
     fn query(&self) -> &dyn Queryable<Output = T> {
         self.load_query.as_ref()
     }
@@ -96,7 +96,17 @@ impl<T: DBRecord> AssociationPrivate<T> for HasMany<T> {
     }
 }
 
-impl<'a, T: DBRecord + 'a> Association<'a, T> for HasMany<T> {
+impl<T: DBRecord> PartialEq for HasMany<T>
+where
+    T: PartialEq + Eq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+impl<T: DBRecord> Eq for HasMany<T> where T: Eq {}
+
+impl<'a, T: DBRecord + PartialEq + Eq + 'a> Association<'a, T> for HasMany<T> {
     type Unwrapped = Option<&'a [T]>;
     fn unwrap(&'a self) -> Self::Unwrapped {
         self.data.unwrap_to_inner_ref().unwrap_option_many()
@@ -121,7 +131,7 @@ impl<T: DBRecord> HasMany<T> {
 
 pub async fn load<D: DBRecord>(
     pool: &PgPool,
-    assoc: &mut dyn AssociationPrivate<D>,
+    assoc: &mut dyn AssociationLoader<D>,
 ) -> Result<(), ChangeError> {
     match assoc.multiplicity() {
         Multiplicity::One => {
@@ -169,7 +179,8 @@ where
     D: Insertable<Output = I> + Validatable,
 {
     data.validate()?;
-    let row = pool.fetch_one(data.prepare_query().as_str()).await?;
+    let query = data.prepare_query();
+    let row = pool.fetch_one(query.as_str()).await?;
     let obj: D::Output = <D as Insertable>::Output::from_row(&row)?;
     Ok(obj)
 }
@@ -199,15 +210,3 @@ where
     let obj: D = D::from_row(&row)?;
     Ok(obj)
 }
-
-// pub async fn find<R>(pool: &PgPool, id: i32) -> Result<R, ChangeError>
-// where
-//     R: for<'b> sqlx::FromRow<'b, PgRow> + TableRef,
-// {
-//     let query = Query::select()
-//         .from(R::table_ref())
-//         .expr(Expr::asterisk())
-//         .and_where(Expr::col(Alias::new("id")).eq(id))
-//         .to_owned();
-//     one::<R>(&pool, query).await
-// }

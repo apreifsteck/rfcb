@@ -1,21 +1,26 @@
 use crate::{
     api_error::APIError,
-    repo::{self, DBRecord, Insertable, Queryable, Validatable},
+    entities::motion::{Motion, MotionAssocQuery, MotionAttrs},
+    entities::participants::Participant,
+    repo::{self, DBRecord, HasMany, Insertable, Queryable, Validatable},
 };
 use chrono::Days;
 use sea_query::{enum_def, Alias, Expr, PostgresQueryBuilder, Query};
+use sqlx::postgres::PgRow;
 use sqlx::types::chrono::{DateTime, Utc};
+use sqlx::{FromRow, Row};
 use validator::Validate;
 
 type ID = i32;
 type UtcDate = DateTime<Utc>;
-#[derive(Debug, sqlx::FromRow, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Vote {
     pub id: ID,
     pub rfc_id: ID,
     pub deadline: UtcDate,
     pub created_at: UtcDate,
     pub updated_at: UtcDate,
+    motions: HasMany<Motion>,
 }
 
 pub async fn make_new_motion<'a>(
@@ -50,6 +55,34 @@ impl Vote {
     }
 }
 
+// Separate Row from Entity
+// Have From attr that converts between row and Entity
+// Basically have a lifecycle which goes from Attrs -> Row -> Entity
+
+impl FromRow<'_, PgRow> for Vote {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let id: ID = row.try_get("id")?;
+        let assoc_query = MotionAssocQuery { vote_id: id };
+        let assoc = HasMany::new(assoc_query);
+        Ok(Self {
+            id: id,
+            rfc_id: row.try_get("rfc_id")?,
+            deadline: row.try_get("deadline")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+            motions: assoc,
+        })
+    }
+}
+impl DBRecord for Vote {
+    fn table_ref() -> Alias {
+        Alias::new("votes")
+    }
+    fn primary_key(&self) -> i32 {
+        self.id
+    }
+}
+
 #[derive(Debug, Validate)]
 #[enum_def]
 pub struct VoteAttrs {
@@ -64,15 +97,6 @@ impl VoteAttrs {
             .or(Some(Utc::now().checked_add_days(default_deadline).unwrap()));
         self.deadline = deadline;
         self
-    }
-}
-
-impl DBRecord for Vote {
-    fn table_ref() -> Alias {
-        Alias::new("votes")
-    }
-    fn primary_key(&self) -> i32 {
-        self.id
     }
 }
 
@@ -122,7 +146,6 @@ impl<'a> From<VoteError<'a>> for Result<(), VoteError<'a>> {
 // automaticall requiring a trip to the database, or does it just
 // accept an ID, and trust whatever came before is secure and gave it good stuff?
 
-use super::{motion::MotionAttrs, participants::Participant};
 #[cfg(test)]
 pub async fn factory(pool: &sqlx::PgPool, rfc_id: ID) -> Vote {
     let mut attrs = VoteAttrs {
@@ -130,7 +153,8 @@ pub async fn factory(pool: &sqlx::PgPool, rfc_id: ID) -> Vote {
         deadline: None,
     };
     attrs.add_defaults(Days::new(7));
-    repo::insert(pool, attrs).await.unwrap()
+    let res = repo::insert(pool, attrs).await.unwrap();
+    res
 }
 
 #[cfg(test)]
@@ -182,11 +206,11 @@ mod tests {
         use crate::{
             api_error::APIError,
             entities::{
-                motion::{MotionAttrs, MotionQuery, Type},
+                motion::{MotionAssocQuery, MotionAttrs, MotionQuery, Type},
                 participants::{self, Participant},
                 rfc, vote,
             },
-            repo,
+            repo::{self, HasMany, Loadable},
         };
         fn participant() -> Participant {
             let now = Utc::now();
@@ -205,6 +229,7 @@ mod tests {
                 deadline: now,
                 created_at: now,
                 updated_at: now,
+                motions: HasMany::new(MotionAssocQuery { vote_id: -1 }),
             }
         }
 
@@ -253,7 +278,9 @@ mod tests {
         #[sqlx::test]
         fn returns_ok_if_current_date_befor_deadline(pool: sqlx::PgPool) {
             let rfc = rfc::factory(&pool).await;
+            dbg!(&rfc);
             let mut vote = vote::factory(&pool, rfc.id).await;
+            dbg!(&vote);
             let participant = participants::factory(&pool).await;
 
             let one_day_from_now = Utc::now().checked_add_days(Days::new(1)).unwrap();
