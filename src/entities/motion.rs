@@ -164,12 +164,15 @@ impl Queryable for MotionAssocQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{entities::*, repo};
+    use crate::{
+        entities::{participants, rfc::rfc, vote},
+        repo,
+    };
     use sqlx::PgPool;
     #[sqlx::test]
     fn returns_struct_when_valid(pool: PgPool) {
         let rfc = rfc::factory(&pool).await;
-        let vote = vote::factory(&pool, rfc.id).await;
+        let vote = vote::factory(&pool, rfc.id().to_owned()).await;
         let participant = participants::factory(&pool).await;
         let attrs = MotionAttrs {
             vote: &vote,
@@ -187,7 +190,7 @@ mod tests {
     #[sqlx::test]
     fn upserts_for_duplicate_motions(pool: sqlx::PgPool) {
         let rfc = rfc::factory(&pool).await;
-        let vote = vote::factory(&pool, rfc.id).await;
+        let vote = vote::factory(&pool, rfc.id().to_owned()).await;
         let participant = participants::factory(&pool).await;
 
         let motion_attrs = MotionAttrs {

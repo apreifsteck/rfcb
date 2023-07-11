@@ -208,9 +208,9 @@ mod tests {
             entities::{
                 motion::{MotionAssocQuery, MotionAttrs, MotionQuery, Type},
                 participants::{self, Participant},
-                rfc, vote,
+                rfc::rfc, vote,
             },
-            repo::{self, HasMany, Loadable},
+            repo::{self, HasMany},
         };
         fn participant() -> Participant {
             let now = Utc::now();
@@ -279,7 +279,7 @@ mod tests {
         fn returns_ok_if_current_date_befor_deadline(pool: sqlx::PgPool) {
             let rfc = rfc::factory(&pool).await;
             dbg!(&rfc);
-            let mut vote = vote::factory(&pool, rfc.id).await;
+            let mut vote = vote::factory(&pool, rfc.id().to_owned()).await;
             dbg!(&vote);
             let participant = participants::factory(&pool).await;
 
