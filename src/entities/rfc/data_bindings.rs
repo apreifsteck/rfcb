@@ -7,6 +7,7 @@ use std::hash::Hash;
 use std::str::FromStr;
 use strum::EnumString;
 use strum_macros::AsRefStr;
+
 type ID = i32;
 #[derive(Debug, sqlx::FromRow)]
 pub struct RFCRow {
@@ -49,7 +50,6 @@ impl TryFrom<String> for Status {
 #[derive(Debug, Clone)]
 #[enum_def]
 pub struct RFCAttrs<'a> {
-    // status: Status,
     proposal: &'a str,
     topic: &'a str,
 }

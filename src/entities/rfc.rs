@@ -1,3 +1,2 @@
 mod data_bindings;
-pub mod rfc;
-
+pub mod entity;

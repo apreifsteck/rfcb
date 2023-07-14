@@ -1,4 +1,4 @@
-use crate::entities::vote::VoteError;
+use crate::entities::vote::entity::VoteError;
 use crate::repo::ChangeError;
 
 #[derive(Debug)]

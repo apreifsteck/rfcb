@@ -1,5 +1,5 @@
-use crate::entities::{participants::Participant, vote::Vote};
-use crate::repo::{ChangeError, DBRecord, Insertable, Queryable, Validatable};
+use crate::entities::{participants::Participant, vote::entity::Vote};
+use crate::repo::{ChangeError, DBRecord, Entity, Insertable, Queryable, Validatable};
 use sea_query::{Alias, Expr, Iden, OnConflict, PostgresQueryBuilder, Query, SimpleExpr};
 use sqlx::types::chrono::{DateTime, Utc};
 use std::str::FromStr;
@@ -19,6 +19,10 @@ pub struct Motion {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+impl Entity for Motion {
+    type Record = Self;
+}
+
 impl<'a> DBRecord for Motion {
     fn table_ref() -> Alias {
         Alias::new("motions")
@@ -100,7 +104,7 @@ impl<'a> Insertable for MotionAttrs<'a> {
         starter_query
             .columns([I::VoteId, I::ParticipantId, I::Type, I::Comment])
             .values_panic([
-                self.vote.id.into(),
+                self.vote.id().to_owned().into(),
                 self.participant.id.into(),
                 self.r#type.into(),
                 self.comment.into(),
@@ -122,7 +126,7 @@ pub struct MotionQuery<'a> {
 impl<'a> Queryable for MotionQuery<'a> {
     type Output = Motion;
     fn to_sql(&self) -> String {
-        let vote_id: Option<SimpleExpr> = self.vote.map(|x| x.primary_key().into());
+        let vote_id: Option<SimpleExpr> = self.vote.map(|x| x.id().to_owned().into());
         let participant_id: Option<SimpleExpr> = self.participant.map(|x| x.primary_key().into());
         type I = MotionIden;
         let colums_and_values = [
@@ -165,14 +169,14 @@ impl Queryable for MotionAssocQuery {
 mod tests {
     use super::*;
     use crate::{
-        entities::{participants, rfc::rfc, vote},
+        entities::{participants, rfc, vote},
         repo,
     };
     use sqlx::PgPool;
     #[sqlx::test]
     fn returns_struct_when_valid(pool: PgPool) {
-        let rfc = rfc::factory(&pool).await;
-        let vote = vote::factory(&pool, rfc.id().to_owned()).await;
+        let rfc = rfc::entity::factory(&pool).await;
+        let vote = vote::entity::factory(&pool, rfc.id().to_owned()).await;
         let participant = participants::factory(&pool).await;
         let attrs = MotionAttrs {
             vote: &vote,
@@ -183,14 +187,14 @@ mod tests {
 
         let result = repo::insert(&pool, attrs).await.unwrap();
         assert_eq!(result.participant_id, participant.id);
-        assert_eq!(result.vote_id, vote.id);
+        assert_eq!(&result.vote_id, vote.id());
         assert_eq!(result.comment, Some("Hello".to_string()));
         assert_eq!(result.r#type, Type::Accept);
     }
     #[sqlx::test]
     fn upserts_for_duplicate_motions(pool: sqlx::PgPool) {
-        let rfc = rfc::factory(&pool).await;
-        let vote = vote::factory(&pool, rfc.id().to_owned()).await;
+        let rfc = rfc::entity::factory(&pool).await;
+        let vote = vote::entity::factory(&pool, rfc.id().to_owned()).await;
         let participant = participants::factory(&pool).await;
 
         let motion_attrs = MotionAttrs {
@@ -199,7 +203,7 @@ mod tests {
             r#type: Type::Accept,
             comment: None,
         };
-        assert!(vote::make_new_motion(&pool, motion_attrs.clone())
+        assert!(vote::entity::make_new_motion(&pool, motion_attrs.clone())
             .await
             .is_ok());
 
@@ -213,7 +217,7 @@ mod tests {
         let mut new_vote = motion_attrs.clone();
         new_vote.r#type = Type::Reject;
         new_vote.comment = Some("Why hello there");
-        assert!(vote::make_new_motion(&pool, new_vote).await.is_ok());
+        assert!(vote::entity::make_new_motion(&pool, new_vote).await.is_ok());
 
         let updated_motion = repo::one(&pool, &query).await.unwrap();
         assert!(updated_motion.updated_at > updated_motion.created_at);

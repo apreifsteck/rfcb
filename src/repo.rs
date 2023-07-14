@@ -65,26 +65,29 @@ impl<T> Data<T> {
     }
 }
 
-pub trait AssociationLoader<T: DBRecord> {
-    fn query(&self) -> &dyn Queryable<Output = T>;
+pub trait AssociationLoader<T: Entity> {
+    fn query(&self) -> &dyn Queryable<Output = T::Record>;
     fn multiplicity(&self) -> Multiplicity;
     fn load(&mut self, data: Loadable<T>);
 }
 
-pub trait Association<'a, T: DBRecord + 'a>: AssociationLoader<T> + PartialEq + Eq {
+pub trait Association<'a, T: Entity + 'a>: AssociationLoader<T> + PartialEq + Eq {
     type Unwrapped;
     fn is_loaded(&self) -> bool;
     fn unwrap(&'a self) -> Self::Unwrapped;
 }
 
 #[derive(Debug)]
-pub struct HasMany<T: DBRecord> {
+pub struct HasMany<T>
+where
+    T: Entity,
+{
     data: Loadable<T>,
-    load_query: Box<dyn Queryable<Output = T>>,
+    load_query: Box<dyn Queryable<Output = T::Record>>,
 }
 
-impl<T: DBRecord> AssociationLoader<T> for HasMany<T> {
-    fn query(&self) -> &dyn Queryable<Output = T> {
+impl<T: Entity> AssociationLoader<T> for HasMany<T> {
+    fn query(&self) -> &dyn Queryable<Output = T::Record> {
         self.load_query.as_ref()
     }
 
@@ -96,17 +99,7 @@ impl<T: DBRecord> AssociationLoader<T> for HasMany<T> {
     }
 }
 
-impl<T: DBRecord> PartialEq for HasMany<T>
-where
-    T: PartialEq + Eq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.data == other.data
-    }
-}
-impl<T: DBRecord> Eq for HasMany<T> where T: Eq {}
-
-impl<'a, T: DBRecord + PartialEq + Eq + 'a> Association<'a, T> for HasMany<T> {
+impl<'a, T: Entity + PartialEq + Eq + 'a> Association<'a, T> for HasMany<T> {
     type Unwrapped = Option<&'a [T]>;
     fn unwrap(&'a self) -> Self::Unwrapped {
         self.data.unwrap_to_inner_ref().unwrap_option_many()
@@ -120,31 +113,47 @@ impl<'a, T: DBRecord + PartialEq + Eq + 'a> Association<'a, T> for HasMany<T> {
     }
 }
 
-impl<T: DBRecord> HasMany<T> {
-    pub fn new(load_query: impl Queryable<Output = T> + 'static) -> Self {
+impl<T: Entity> HasMany<T> {
+    pub fn new(load_query: impl Queryable<Output = T::Record> + 'static) -> Self {
         Self {
             data: Loadable::NotLoaded,
             load_query: Box::new(load_query),
         }
     }
 }
+//
+impl<T> PartialEq for HasMany<T>
+where
+    T: Entity + PartialEq + Eq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+impl<T: Entity> Eq for HasMany<T> where T: Eq {}
 
-pub async fn load<D: DBRecord>(
+pub async fn load<E: Entity>(
     pool: &PgPool,
-    assoc: &mut dyn AssociationLoader<D>,
+    assoc: &mut dyn AssociationLoader<E>,
 ) -> Result<(), ChangeError> {
     match assoc.multiplicity() {
         Multiplicity::One => {
-            let res: D = one(pool, assoc.query()).await?;
-            assoc.load(Loadable::Loaded(Data::One(res)));
+            let res: E::Record = one(pool, assoc.query()).await?;
+            assoc.load(Loadable::Loaded(Data::One(res.into())));
             Ok(())
         }
         Multiplicity::Many => {
             let res = all(pool, assoc.query()).await?;
-            assoc.load(Loadable::Loaded(Data::Many(res.into_iter().collect())));
+            assoc.load(Loadable::Loaded(Data::Many(
+                res.into_iter().map(|i| i.into()).collect(),
+            )));
             Ok(())
         }
     }
+}
+
+pub trait Entity: Sized {
+    type Record: DBRecord + Into<Self>;
 }
 
 pub trait DBRecord: for<'b> sqlx::FromRow<'b, PgRow> {

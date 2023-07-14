@@ -1,5 +1,5 @@
-use crate::entities::vote::{Vote, VoteAttrs};
-use crate::repo::{self, Association, ChangeError, HasMany};
+use crate::entities::vote::{data_bindings::VoteAttrs, entity::Vote};
+use crate::repo::{self, Association, ChangeError, Entity, HasMany};
 use derive_getters::Getters;
 use sqlx::types::chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -13,6 +13,7 @@ pub struct RFC {
     status: Status,
     proposal: String,
     topic: String,
+    //TODO create a HasOne for this
     supersedes: Option<i32>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -27,6 +28,10 @@ impl RFC {
         }
         Ok(self.votes.unwrap())
     }
+}
+
+impl Entity for RFC {
+    type Record = RFCRow;
 }
 impl From<RFCRow> for RFC {
     fn from(value: RFCRow) -> Self {
@@ -89,8 +94,8 @@ mod tests {
         #[sqlx::test]
         fn can_get_votes(pool: PgPool) {
             let mut rfc = factory(&pool).await;
-            let v1 = vote::factory(&pool, rfc.id).await;
-            let v2 = vote::factory(&pool, rfc.id).await;
+            let v1 = vote::entity::factory(&pool, rfc.id).await;
+            let v2 = vote::entity::factory(&pool, rfc.id).await;
 
             let votes: Vec<_> = rfc
                 .votes(&pool)
@@ -98,9 +103,9 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .into_iter()
-                .map(|v| v.id)
+                .map(|v| v.id())
                 .collect();
-            assert_eq!(vec![v1.id, v2.id], votes)
+            assert_eq!(vec![v1.id(), v2.id()], votes)
         }
     }
 }
